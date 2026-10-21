@@ -1,0 +1,62 @@
+{
+  "version": "1.0.0",
+  "pipeline": "livevoice-ai-streaming",
+  "supported_languages_count": 20,
+  "models": [
+    {
+      "id": "edge-neural-tts-multilingual",
+      "name": "Microsoft Edge Neural Voice Synthesizer",
+      "type": "tts",
+      "architecture": "Deep neural text-to-speech vocoder",
+      "supported_languages": [
+        "en", "te", "hi", "ta", "kn", "ml", "bn", "mr", "gu", "pa",
+        "ur", "es", "fr", "de", "pt", "it", "ja", "ko", "zh", "ar"
+      ],
+      "primary_voices": {
+        "te": "te-IN-MohanNeural",
+        "en": "en-US-AriaNeural",
+        "hi": "hi-IN-SwaraNeural",
+        "ta": "ta-IN-PallaviNeural",
+        "kn": "kn-IN-SapnaNeural",
+        "ml": "ml-IN-SobhanaNeural",
+        "bn": "bn-IN-TanishaaNeural",
+        "mr": "mr-IN-AarohiNeural",
+        "gu": "gu-IN-DhwaniNeural",
+        "pa": "pa-IN-GurpreetNeural",
+        "ur": "ur-PK-UzmaNeural",
+        "es": "es-ES-ElviraNeural",
+        "fr": "fr-FR-DeniseNeural",
+        "de": "de-DE-KatjaNeural",
+        "pt": "pt-BR-FranciscaNeural",
+        "it": "it-IT-ElsaNeural",
+        "ja": "ja-JP-NanamiNeural",
+        "ko": "ko-KR-SunHiNeural",
+        "zh": "zh-CN-XiaoxiaoNeural",
+        "ar": "ar-SA-ZariyahNeural"
+      },
+      "local_size_mb": 0,
+      "streaming_supported": true
+    },
+    {
+      "id": "whisper-indic-stream",
+      "name": "Whisper Streaming ASR",
+      "type": "asr",
+      "architecture": "Encoder-decoder Transformer with streaming chunking",
+      "supported_languages": [
+        "en", "te", "hi", "ta", "kn", "ml", "bn", "mr", "gu", "pa",
+        "ur", "es", "fr", "de", "pt", "it", "ja", "ko", "zh", "ar"
+      ],
+      "model_size_mb": 145,
+      "weights_uri": "https://huggingface.co/openai/whisper-tiny"
+    },
+    {
+      "id": "nllb-200-distilled-600M",
+      "name": "No Language Left Behind Distilled Translation",
+      "type": "translation",
+      "architecture": "Dense seq2seq translation model",
+      "supported_languages": 20,
+      "model_size_mb": 600,
+      "weights_uri": "https://huggingface.co/facebook/nllb-200-distilled-600M"
+    }
+  ]
+}

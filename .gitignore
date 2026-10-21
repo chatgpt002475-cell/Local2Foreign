@@ -1,0 +1,39 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Node / Frontend
+node_modules/
+frontend/node_modules/
+dist/
+frontend/dist/
+.npm
+.vite
+
+# Environment variables & secrets
+.env
+*.local
+
+# Logs and databases
+*.log
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Operating system files
+.DS_Store
+Thumbs.db
+
+# Large model weights (do not commit binaries)
+models/*.bin
+models/*.pt
+models/*.onnx
+models/*.safetensors
+models/*.gguf
