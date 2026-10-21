@@ -10,36 +10,34 @@ echo.
 cd /d "%~dp0"
 set PYTHONPATH=%~dp0
 
-echo Starting Unified Server on Port 8000 (Serving UI, API, and WebSockets)...
+echo [1/2] Starting Unified Server on Port 8000 (Serving UI, API, and WebSockets)...
 start /b "" "C:\Users\naidu\.venvs\livevoice\Scripts\python.exe" -m uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
 
 timeout /t 2 /nobreak >nul
 
-echo Starting Permanent Secure Tunnel for Mobile Devices...
-start /b "" "C:\Users\naidu\.tools\cloudflared.exe" tunnel --url http://localhost:8000
+echo [2/2] Starting Auto-Healing Remote Tunnel Watchdog for Mobile / Tablet Devices...
+start /b "" "C:\Users\naidu\.venvs\livevoice\Scripts\python.exe" scripts\tunnel_watchdog.py
 
-timeout /t 3 /nobreak >nul
+timeout /t 4 /nobreak >nul
 
 cls
 echo ====================================================================
 echo              LIVEVOICE AI IS RUNNING PERMANENTLY!
 echo ====================================================================
 echo.
-echo  [1] LOCALHOST (This PC):
+echo  [A] PERMANENT LOCAL WI-FI LINKS (NEVER BREAKS - Works on Any Mobile/Tablet on Wi-Fi):
+echo      Main Dashboard:    http://192.168.1.4:8000
+echo      Speaker Studio:    http://192.168.1.4:8000/?mode=speaker^&room=LIVE-8821
+echo      Listener Portal:   http://192.168.1.4:8000/?mode=listener^&room=LIVE-8821
+echo.
+echo  [B] LOCALHOST (This PC):
 echo      http://localhost:8000
 echo.
-echo  [2] LOCAL WI-FI NETWORK (Any Mobile / Tablet / Laptop on same Wi-Fi):
-echo      http://192.168.1.4:8000
-echo      http://ELLAGOWTHAMI:8000
-echo.
-echo  [3] SPEAKER STUDIO:
-echo      http://192.168.1.4:8000/?mode=speaker^&room=LIVE-8821
-echo.
-echo  [4] LISTENER PORTAL (Share with Audience):
-echo      http://192.168.1.4:8000/?mode=listener^&room=LIVE-8821
+echo  [C] PUBLIC / MOBILE DATA ACCESS:
+echo      See 'current_public_link.txt' or open 'current_public_link.html'
 echo.
 echo ====================================================================
-echo Leave this window open. Press Ctrl+C to stop.
+echo Leave this window open. The server and tunnel will auto-heal if disconnected.
 echo ====================================================================
 
 pause

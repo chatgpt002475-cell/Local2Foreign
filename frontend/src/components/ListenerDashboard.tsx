@@ -7,11 +7,13 @@ import {
   Sliders,
   AlertCircle,
   AudioWaveform,
+  QrCode,
 } from 'lucide-react';
 import { LanguageCapability, TranscriptItem } from '../types';
 import { LiveTranslationWS, RoomStats } from '../services/websocket';
 import { globalAudioPlayer } from '../services/audioPlayer';
 import { VoiceSelectorModal } from './VoiceSelectorModal';
+import { ShareRoomModal } from './ShareRoomModal';
 
 interface ListenerDashboardProps {
   languages: LanguageCapability[];
@@ -41,6 +43,7 @@ export const ListenerDashboard: React.FC<ListenerDashboardProps> = ({
   const [selectedPitch, setSelectedPitch] = useState('+0Hz');
   const [selectedRate, setSelectedRate] = useState('+0%');
   const [isVoiceModalOpen, setIsVoiceModalOpen] = useState(false);
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
 
   const [roomStats, setRoomStats] = useState<RoomStats>({
     room_id: roomId,
@@ -247,6 +250,15 @@ export const ListenerDashboard: React.FC<ListenerDashboardProps> = ({
                 Sent {reactionSent}!
               </span>
             )}
+
+            <button
+              onClick={() => setIsShareModalOpen(true)}
+              title="Share Room / Connect Device"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-semibold text-slate-200 transition ml-2"
+            >
+              <QrCode className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Share</span>
+            </button>
           </div>
         </div>
 
@@ -458,6 +470,13 @@ export const ListenerDashboard: React.FC<ListenerDashboardProps> = ({
         selectedPitch={selectedPitch}
         selectedRate={selectedRate}
         onApplyVoice={handleApplyVoice}
+      />
+
+      {/* Connect Any Device / QR Modal */}
+      <ShareRoomModal
+        isOpen={isShareModalOpen}
+        onClose={() => setIsShareModalOpen(false)}
+        roomId={roomId}
       />
     </div>
   );

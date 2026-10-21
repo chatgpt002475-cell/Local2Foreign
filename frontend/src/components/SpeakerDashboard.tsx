@@ -14,6 +14,7 @@ import {
   Volume2,
   VolumeX,
   AudioWaveform,
+  QrCode,
 } from 'lucide-react';
 import { LanguageCapability, TranscriptItem, CustomVoiceProfile } from '../types';
 import { LiveTranslationWS, RoomStats, ListenerReaction } from '../services/websocket';
@@ -22,6 +23,7 @@ import { globalAudioPlayer } from '../services/audioPlayer';
 import { AudioVisualizer } from './AudioVisualizer';
 import { TranscriptCard } from './TranscriptCard';
 import { VoiceSelectorModal } from './VoiceSelectorModal';
+import { ShareRoomModal } from './ShareRoomModal';
 
 interface SpeakerDashboardProps {
   languages: LanguageCapability[];
@@ -79,6 +81,7 @@ export const SpeakerDashboard: React.FC<SpeakerDashboardProps> = ({
   const [selectedPitch, setSelectedPitch] = useState('+0Hz');
   const [selectedRate, setSelectedRate] = useState('+0%');
   const [customProfile, setCustomProfile] = useState<CustomVoiceProfile | null>(null);
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
 
   // Room Stats & Reactions from audience
   const [roomStats, setRoomStats] = useState<RoomStats>({
@@ -365,12 +368,21 @@ export const SpeakerDashboard: React.FC<SpeakerDashboardProps> = ({
             </div>
 
             <button
+              onClick={() => setIsShareModalOpen(true)}
+              title="Open QR Code & Permanent Link Options"
+              className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold transition-all shadow-md shadow-emerald-600/20"
+            >
+              <QrCode className="w-4 h-4" />
+              <span>Connect Any Device / QR</span>
+            </button>
+
+            <button
               onClick={copyListenerLink}
               title="Copy listener invitation link to clipboard"
               className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition-all"
             >
               {copiedLink ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
-              <span>{copiedLink ? 'Link Copied!' : 'Copy Listener Link'}</span>
+              <span>{copiedLink ? 'Link Copied!' : 'Copy Link'}</span>
             </button>
 
             {/* Audience Counter */}
@@ -642,6 +654,13 @@ export const SpeakerDashboard: React.FC<SpeakerDashboardProps> = ({
         selectedPitch={selectedPitch}
         selectedRate={selectedRate}
         onApplyVoice={handleApplyVoice}
+      />
+
+      {/* Connect Any Device & QR Modal */}
+      <ShareRoomModal
+        isOpen={isShareModalOpen}
+        onClose={() => setIsShareModalOpen(false)}
+        roomId={roomId}
       />
     </div>
   );

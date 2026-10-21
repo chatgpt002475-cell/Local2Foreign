@@ -10,6 +10,7 @@ from .languages import languages_router
 from .diagnostics import diagnostics_router
 from .settings import settings_router
 from .voice import voice_router
+from .tunnel import tunnel_router
 from ..services.translation import translation_service
 from ..services.tts import tts_service
 from ..services.asr import asr_service
@@ -21,6 +22,7 @@ api_router.include_router(languages_router)
 api_router.include_router(diagnostics_router)
 api_router.include_router(settings_router)
 api_router.include_router(voice_router)
+api_router.include_router(tunnel_router)
 
 class TranslateRequest(BaseModel):
     text: str
