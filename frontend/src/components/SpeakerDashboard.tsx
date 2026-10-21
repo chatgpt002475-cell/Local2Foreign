@@ -63,6 +63,7 @@ export const SpeakerDashboard: React.FC<SpeakerDashboardProps> = ({
   const [roomId, setRoomId] = useState(initialRoomId);
   const [isBroadcasting, setIsBroadcasting] = useState(false);
   const [sourceLang, setSourceLang] = useState('te'); // Telugu default
+  const [targetLang, setTargetLang] = useState('en'); // English default
   const [transcripts, setTranscripts] = useState<TranscriptItem[]>([]);
   const [partialTranscript, setPartialTranscript] = useState<TranscriptItem | null>(null);
   const [currentVolume, setCurrentVolume] = useState(0);
@@ -137,7 +138,7 @@ export const SpeakerDashboard: React.FC<SpeakerDashboardProps> = ({
           if (event.results[i].isFinal) {
             const trimmed = transcriptSegment.trim();
             if (trimmed.length > 0 && wsRef.current) {
-              wsRef.current.sendSpeakerSpeech(trimmed, langCode, 'en');
+              wsRef.current.sendSpeakerSpeech(trimmed, langCode, targetLang);
             }
           } else {
             interimText += transcriptSegment;
@@ -149,7 +150,7 @@ export const SpeakerDashboard: React.FC<SpeakerDashboardProps> = ({
             seq_id: 999999,
             timestamp: new Date().toISOString(),
             source_lang: langCode,
-            target_lang: 'en',
+            target_lang: targetLang,
             source_text: interimText,
             translated_text: 'Listening...',
             is_final: false,
@@ -198,7 +199,7 @@ export const SpeakerDashboard: React.FC<SpeakerDashboardProps> = ({
 
       ws.connect({
         sourceLang,
-        targetLang: 'en',
+        targetLang,
         autoDetect: false,
         provider,
         voice: selectedVoice,
@@ -232,6 +233,7 @@ export const SpeakerDashboard: React.FC<SpeakerDashboardProps> = ({
     }
   }, [
     sourceLang,
+    targetLang,
     provider,
     roomId,
     selectedVoice,
@@ -279,13 +281,13 @@ export const SpeakerDashboard: React.FC<SpeakerDashboardProps> = ({
   const handleSendText = (e: React.FormEvent) => {
     e.preventDefault();
     if (!textInput.trim() || !wsRef.current) return;
-    wsRef.current.sendTextMessage(textInput, sourceLang, 'en');
+    wsRef.current.sendTextMessage(textInput, sourceLang, targetLang);
     setTextInput('');
   };
 
   const handleQuickPhrase = (phraseText: string) => {
     if (wsRef.current) {
-      wsRef.current.sendTextMessage(phraseText, sourceLang, 'en');
+      wsRef.current.sendTextMessage(phraseText, sourceLang, targetLang);
     }
   };
 
@@ -414,6 +416,30 @@ export const SpeakerDashboard: React.FC<SpeakerDashboardProps> = ({
                 disabled={isBroadcasting}
                 value={sourceLang}
                 onChange={(e) => setSourceLang(e.target.value)}
+                className="bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white font-medium focus:outline-none focus:border-indigo-500 disabled:opacity-50"
+              >
+                {languages.map((l) => (
+                  <option key={l.code} value={l.code}>
+                    {l.name} ({l.native_name})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Translate Into Target Language */}
+            <div>
+              <label className="text-xs font-semibold uppercase tracking-wider text-slate-400 block mb-1">
+                Translate Into
+              </label>
+              <select
+                disabled={isBroadcasting}
+                value={targetLang}
+                onChange={(e) => {
+                  const newT = e.target.value;
+                  setTargetLang(newT);
+                  const langObj = languages.find((l) => l.code === newT);
+                  if (langObj) setSelectedVoice(langObj.default_voice);
+                }}
                 className="bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white font-medium focus:outline-none focus:border-indigo-500 disabled:opacity-50"
               >
                 {languages.map((l) => (
@@ -610,7 +636,7 @@ export const SpeakerDashboard: React.FC<SpeakerDashboardProps> = ({
       <VoiceSelectorModal
         isOpen={isVoiceModalOpen}
         onClose={() => setIsVoiceModalOpen(false)}
-        targetLang="en"
+        targetLang={targetLang}
         languages={languages}
         selectedVoice={selectedVoice}
         selectedPitch={selectedPitch}
