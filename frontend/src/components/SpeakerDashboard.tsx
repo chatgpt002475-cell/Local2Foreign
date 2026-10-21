@@ -97,6 +97,8 @@ export const SpeakerDashboard: React.FC<SpeakerDashboardProps> = ({
   const durationTimerRef = useRef<number | null>(null);
   const isBroadcastingRef = useRef(false);
   const speechRecognitionRef = useRef<any>(null);
+  const lastDispatchedTextRef = useRef('');
+  const interimDebounceTimerRef = useRef<number | null>(null);
 
   const sourceLangInfo = languages.find((l) => l.code === sourceLang);
 
@@ -136,28 +138,56 @@ export const SpeakerDashboard: React.FC<SpeakerDashboardProps> = ({
 
       recognition.onresult = (event: any) => {
         let interimText = '';
+        let hasFinal = false;
+
         for (let i = event.resultIndex; i < event.results.length; ++i) {
           const transcriptSegment = event.results[i][0].transcript;
           if (event.results[i].isFinal) {
-            const trimmed = transcriptSegment.trim();
-            if (trimmed.length > 0 && wsRef.current) {
-              wsRef.current.sendSpeakerSpeech(trimmed, langCode, targetLang);
+            hasFinal = true;
+            const finalStr = transcriptSegment.trim();
+            if (finalStr.length > 0 && finalStr !== lastDispatchedTextRef.current) {
+              lastDispatchedTextRef.current = finalStr;
+              if (interimDebounceTimerRef.current) {
+                clearTimeout(interimDebounceTimerRef.current);
+                interimDebounceTimerRef.current = null;
+              }
+              if (wsRef.current) {
+                wsRef.current.sendSpeakerSpeech(finalStr, langCode, targetLang);
+              }
             }
           } else {
             interimText += transcriptSegment;
           }
         }
-        if (interimText.trim()) {
+
+        const cleanInterim = interimText.trim();
+        if (cleanInterim) {
           setPartialTranscript({
             id: 'interim-live',
             seq_id: 999999,
             timestamp: new Date().toISOString(),
             source_lang: langCode,
             target_lang: targetLang,
-            source_text: interimText,
+            source_text: cleanInterim,
             translated_text: 'Listening...',
             is_final: false,
           });
+
+          // Fast natural pause detector (650ms): Dispatches without waiting 3 seconds for browser isFinal!
+          if (interimDebounceTimerRef.current) {
+            clearTimeout(interimDebounceTimerRef.current);
+          }
+          interimDebounceTimerRef.current = window.setTimeout(() => {
+            if (
+              cleanInterim.length > 2 &&
+              cleanInterim !== lastDispatchedTextRef.current &&
+              !hasFinal &&
+              wsRef.current
+            ) {
+              lastDispatchedTextRef.current = cleanInterim;
+              wsRef.current.sendSpeakerSpeech(cleanInterim, langCode, targetLang);
+            }
+          }, 650);
         }
       };
 
@@ -215,12 +245,9 @@ export const SpeakerDashboard: React.FC<SpeakerDashboardProps> = ({
       // Start continuous browser speech recognition for continuous Telugu/Hindi/English etc.
       speechRecognitionRef.current = startSpeechRecognition(sourceLang);
 
-      // Start PCM audio streaming for visualizer and backend VAD energy meter
-      await recorder.start((pcm16, volume) => {
+      // Start audio recording for live UI visualizer (no duplicate PCM network spam)
+      await recorder.start((_pcm16, volume) => {
         setCurrentVolume(volume);
-        if (wsRef.current) {
-          wsRef.current.sendAudioFrame(pcm16);
-        }
       });
 
       setIsBroadcasting(true);
@@ -249,6 +276,12 @@ export const SpeakerDashboard: React.FC<SpeakerDashboardProps> = ({
 
   const stopBroadcast = useCallback(() => {
     isBroadcastingRef.current = false;
+    if (interimDebounceTimerRef.current) {
+      clearTimeout(interimDebounceTimerRef.current);
+      interimDebounceTimerRef.current = null;
+    }
+    lastDispatchedTextRef.current = '';
+
     if (speechRecognitionRef.current) {
       try {
         speechRecognitionRef.current.stop();

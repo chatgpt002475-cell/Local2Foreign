@@ -36,6 +36,10 @@ export class AudioQueuePlayer {
     onStart?: () => void,
     onEnd?: () => void
   ) {
+    // If backlog accumulates more than 1 pending audio, drop older chunks to stay in real-time
+    if (this.queue.length >= 2) {
+      this.queue = this.queue.slice(-1);
+    }
     this.queue.push({ id, audioBase64, onStart, onEnd });
     if (!this.isPlaying) {
       this.playNext();

@@ -40,6 +40,7 @@ class TranslationSession:
         self.voice = voice
         self.pitch = pitch
         self.rate = rate
+        self.last_speech_time = 0
 
         self.seq_id = 0
         self.created_at = time.time()
@@ -82,6 +83,11 @@ class TranslationSession:
             return
 
         self.last_activity = time.time()
+
+        # If speech recognition events are actively driving transcripts, ignore redundant PCM VAD
+        if time.time() - getattr(self, "last_speech_time", 0) < 3.5:
+            return
+
         is_final, speech_bytes, _energy = self.vad_processor.process_chunk(pcm_bytes)
 
         if is_final and speech_bytes:
@@ -181,10 +187,12 @@ class TranslationSession:
                 )
 
     async def process_direct_text(self, text: str, source_lang: Optional[str] = None, target_lang: Optional[str] = None):
-        """Allows instant text-input testing of the MT & TTS pipeline without microphone."""
+        """Allows instant speech/text input processing of the MT & TTS pipeline without delay."""
         clean_text = text.strip() if text else ""
         if not clean_text:
             return
+
+        self.last_speech_time = time.time()
 
         async with self.processing_lock:
             self.seq_id += 1
@@ -195,17 +203,23 @@ class TranslationSession:
             s_lang = source_lang or self.source_lang
             t_lang = target_lang or self.target_lang
 
-            # Translate
+            # Fast neural translation for speaker preview
             trans_text, trans_ms = await translation_service.translate(clean_text, s_lang, t_lang)
 
-            # Synthesize
-            b64_audio, tts_ms, fmt = await tts_service.synthesize_speech(
-                trans_text,
-                language=t_lang,
-                voice=self.voice,
-                rate=self.rate,
-                pitch=self.pitch
-            )
+            b64_audio = None
+            tts_ms = 0
+            fmt = "audio/mp3"
+
+            # In a broadcast room, speaker is speaking into mic and does NOT need local TTS echo.
+            # Only synthesize speaker audio in 1:1 personal mode.
+            if not self.room_id:
+                b64_audio, tts_ms, fmt = await tts_service.synthesize_speech(
+                    trans_text,
+                    language=t_lang,
+                    voice=self.voice,
+                    rate=self.rate,
+                    pitch=self.pitch
+                )
 
             total_ms = int((time.perf_counter() - start_total) * 1000)
             metrics = {
@@ -224,7 +238,7 @@ class TranslationSession:
                 "timestamp": metrics["timestamp"],
                 "source_lang": s_lang,
                 "target_lang": t_lang,
-                "source_text": text,
+                "source_text": clean_text,
                 "translated_text": trans_text,
                 "is_final": True,
                 "audio_base64": b64_audio,
@@ -232,14 +246,16 @@ class TranslationSession:
                 "metrics": metrics,
             })
 
-            # If in broadcast room, deliver to listeners as well
+            # Broadcast concurrently to audience in parallel
             if self.room_id:
-                await session_manager.broadcast_to_listeners(
-                    room_id=self.room_id,
-                    seq_id=current_seq,
-                    source_text=text,
-                    source_lang=s_lang,
-                    speaker_id=self.session_id
+                asyncio.create_task(
+                    session_manager.broadcast_to_listeners(
+                        room_id=self.room_id,
+                        seq_id=current_seq,
+                        source_text=clean_text,
+                        source_lang=s_lang,
+                        speaker_id=self.session_id
+                    )
                 )
 
     async def send_json(self, data: dict):
@@ -405,47 +421,48 @@ class SessionManager:
 
         timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
-        # For each requested target language, generate translation & neural speech once
-        for target_lang, listeners in listeners_by_lang.items():
+        # Concurrently generate translation & neural speech for all listener target languages in parallel
+        async def _deliver_language(t_lang: str, listeners_group: List[TranslationSession]):
             start_t = time.perf_counter()
-            trans_text, trans_ms = await translation_service.translate(
+            t_text, t_ms = await translation_service.translate(
                 source_text,
                 source_lang,
-                target_lang
+                t_lang
             )
 
-            b64_audio, tts_ms, fmt = await tts_service.synthesize_speech(
-                trans_text,
-                language=target_lang,
-                voice=listeners[0].voice if listeners else None,
-                rate=listeners[0].rate if listeners else "+0%",
-                pitch=listeners[0].pitch if listeners else "+0Hz"
+            b64, t_tts_ms, f_fmt = await tts_service.synthesize_speech(
+                t_text,
+                language=t_lang,
+                voice=listeners_group[0].voice if listeners_group else None,
+                rate=listeners_group[0].rate if listeners_group else "+0%",
+                pitch=listeners_group[0].pitch if listeners_group else "+0Hz"
             )
 
             total_ms = int((time.perf_counter() - start_t) * 1000)
 
             payload = {
                 "type": "transcript",
-                "id": f"room-{room_id}-{seq_id}-{target_lang}",
+                "id": f"room-{room_id}-{seq_id}-{t_lang}",
                 "seq_id": seq_id,
                 "timestamp": timestamp,
                 "source_lang": source_lang,
-                "target_lang": target_lang,
+                "target_lang": t_lang,
                 "source_text": source_text,
-                "translated_text": trans_text,
+                "translated_text": t_text,
                 "is_final": True,
-                "audio_base64": b64_audio,
-                "audio_format": fmt,
+                "audio_base64": b64,
+                "audio_format": f_fmt,
                 "metrics": {
-                    "translation_ms": trans_ms,
-                    "tts_ms": tts_ms,
+                    "translation_ms": t_ms,
+                    "tts_ms": t_tts_ms,
                     "total_turnaround_ms": total_ms,
                 }
             }
 
-            # Send simultaneously to all listeners listening in this target language
-            for listener in listeners:
+            for listener in listeners_group:
                 await listener.send_json(payload)
+
+        await asyncio.gather(*[_deliver_language(tl, lg) for tl, lg in listeners_by_lang.items()])
 
     async def broadcast_reaction(self, room_id: str, emoji: str, sender_name: str = "Listener"):
         """Broadcasts audience reaction/hand-raise to speakers in the room."""
