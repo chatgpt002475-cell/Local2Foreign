@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Navbar, TabType } from './components/Navbar';
+import { SpeakerDashboard } from './components/SpeakerDashboard';
+import { ListenerDashboard } from './components/ListenerDashboard';
 import { LiveTranslator } from './components/LiveTranslator';
 import { LanguagePacks } from './components/LanguagePacks';
 import { TestingDiagnostics } from './components/TestingDiagnostics';
@@ -9,7 +11,13 @@ import { fetchLanguages, fetchSettings } from './services/api';
 import { AlertTriangle, RotateCw } from 'lucide-react';
 
 export const App: React.FC = () => {
-  const [currentTab, setCurrentTab] = useState<TabType>('translator');
+  // Check URL query parameters for direct links (e.g. ?mode=listener&room=LIVE-8821)
+  const queryParams = new URLSearchParams(window.location.search);
+  const initialModeParam = queryParams.get('mode') as TabType | null;
+  const initialRoomParam = queryParams.get('room') || 'LIVE-8821';
+
+  const [currentTab, setCurrentTab] = useState<TabType>(initialModeParam || 'speaker');
+  const [activeRoomId] = useState<string>(initialRoomParam);
   const [languages, setLanguages] = useState<LanguageCapability[]>([]);
   const [settings, setSettings] = useState<AppSettings>({
     local_only_mode: false,
@@ -26,8 +34,8 @@ export const App: React.FC = () => {
     save_transcripts_locally: false,
   });
 
-  const [sourceLang, setSourceLang] = useState('te'); // Telugu default
-  const [targetLang, setTargetLang] = useState('en'); // English default
+  const [sourceLang, setSourceLang] = useState('te');
+  const [targetLang, setTargetLang] = useState('en');
   const [autoDetect, setAutoDetect] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -62,7 +70,7 @@ export const App: React.FC = () => {
 
   const handleSelectLanguageForTranslation = (code: string) => {
     setSourceLang(code);
-    setCurrentTab('translator');
+    setCurrentTab('speaker');
   };
 
   return (
@@ -99,6 +107,25 @@ export const App: React.FC = () => {
           </div>
         ) : (
           <>
+            {/* Dashboard 1: Speaker Studio */}
+            {currentTab === 'speaker' && (
+              <SpeakerDashboard
+                languages={languages}
+                initialRoomId={activeRoomId}
+                provider={settings.ai_provider}
+              />
+            )}
+
+            {/* Dashboard 2: Listener Portal */}
+            {currentTab === 'listener' && (
+              <ListenerDashboard
+                languages={languages}
+                initialRoomId={activeRoomId}
+                provider={settings.ai_provider}
+              />
+            )}
+
+            {/* 1:1 Live Translator Mode */}
             {currentTab === 'translator' && (
               <LiveTranslator
                 languages={languages}
@@ -112,6 +139,7 @@ export const App: React.FC = () => {
               />
             )}
 
+            {/* Language Registry Matrix */}
             {currentTab === 'languages' && (
               <LanguagePacks
                 languages={languages}
@@ -119,6 +147,7 @@ export const App: React.FC = () => {
               />
             )}
 
+            {/* Testing & Diagnostics */}
             {currentTab === 'diagnostics' && (
               <TestingDiagnostics
                 languages={languages}
@@ -126,6 +155,7 @@ export const App: React.FC = () => {
               />
             )}
 
+            {/* Settings */}
             {currentTab === 'settings' && (
               <SettingsView
                 settings={settings}
@@ -139,7 +169,7 @@ export const App: React.FC = () => {
 
       <footer className="border-t border-slate-800/80 py-4 text-center text-xs text-slate-500">
         <p>
-          LiveVoice AI &bull; Real-Time Voice Translation Platform &bull; Supporting 20 Languages &bull; Zero Audio Storage Policy
+          LiveVoice AI &bull; Speaker Broadcast &amp; Listener Reception &bull; Supporting 20 Languages &bull; Zero Storage Policy
         </p>
       </footer>
     </div>

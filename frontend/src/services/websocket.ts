@@ -2,6 +2,19 @@ import { AudioLatencyMetrics, TranscriptItem } from '../types';
 
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'reconnecting' | 'error';
 
+export interface RoomStats {
+  room_id: string;
+  speaker_online: boolean;
+  listener_count: number;
+  listener_languages: string[];
+}
+
+export interface ListenerReaction {
+  emoji: string;
+  sender_name: string;
+  timestamp: string;
+}
+
 export interface WSMessageHandlers {
   onStatusChange?: (status: ConnectionStatus) => void;
   onTranscript?: (item: TranscriptItem) => void;
@@ -9,6 +22,8 @@ export interface WSMessageHandlers {
   onMetrics?: (metrics: AudioLatencyMetrics) => void;
   onError?: (error: string) => void;
   onSessionStarted?: (sessionId: string) => void;
+  onRoomStats?: (stats: RoomStats) => void;
+  onListenerReaction?: (reaction: ListenerReaction) => void;
 }
 
 export class LiveTranslationWS {
@@ -27,7 +42,6 @@ export class LiveTranslationWS {
     this.handlers = handlers;
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host || 'localhost:5173';
-    // When using vite proxy or direct backend
     this.url = `${protocol}//${host}/ws/translate`;
   }
 
@@ -52,6 +66,8 @@ export class LiveTranslationWS {
     autoDetect: boolean;
     provider?: string;
     voice?: string;
+    role?: 'speaker' | 'listener';
+    roomId?: string;
   }) {
     this.isExplicitlyClosed = false;
     this.setStatus('connecting');
@@ -68,6 +84,8 @@ export class LiveTranslationWS {
         // Send start session configuration
         this.sendJSON({
           type: 'start_session',
+          role: config.role || 'speaker',
+          room_id: config.roomId,
           source_lang: config.sourceLang,
           target_lang: config.targetLang,
           auto_detect: config.autoDetect,
@@ -79,15 +97,11 @@ export class LiveTranslationWS {
       this.ws.onmessage = (event) => {
         if (typeof event.data === 'string') {
           try {
-            const data = JSON.parse(event.data);
+            const data = jsonParse(event.data);
             this.handleJSONMessage(data);
           } catch (e) {
             console.error('Failed to parse WS text message:', e);
           }
-        } else if (event.data instanceof ArrayBuffer) {
-          // Binary audio chunk (raw or wav)
-          // Binary protocol can send sequence prefix or direct audio
-          console.debug('Received binary audio payload:', event.data.byteLength);
         }
       };
 
@@ -125,7 +139,27 @@ export class LiveTranslationWS {
         break;
 
       case 'pong':
-        // Heartbeat response
+        break;
+
+      case 'room_stats':
+        if (this.handlers.onRoomStats) {
+          this.handlers.onRoomStats({
+            room_id: (msg.room_id as string) || '',
+            speaker_online: Boolean(msg.speaker_online),
+            listener_count: (msg.listener_count as number) || 0,
+            listener_languages: (msg.listener_languages as string[]) || [],
+          });
+        }
+        break;
+
+      case 'listener_reaction':
+        if (this.handlers.onListenerReaction) {
+          this.handlers.onListenerReaction({
+            emoji: (msg.emoji as string) || '👏',
+            sender_name: (msg.sender_name as string) || 'Listener',
+            timestamp: (msg.timestamp as string) || '',
+          });
+        }
         break;
 
       case 'transcript':
@@ -189,12 +223,21 @@ export class LiveTranslationWS {
     });
   }
 
-  public updateLanguages(sourceLang: string, targetLang: string, autoDetect: boolean) {
+  public sendReaction(emoji: string, senderName: string = 'Listener') {
+    this.sendJSON({
+      type: 'reaction',
+      emoji,
+      sender_name: senderName,
+    });
+  }
+
+  public updateLanguages(sourceLang: string, targetLang: string, autoDetect: boolean, voice?: string) {
     this.sendJSON({
       type: 'update_config',
       source_lang: sourceLang,
       target_lang: targetLang,
       auto_detect: autoDetect,
+      voice: voice,
     });
   }
 
@@ -238,6 +281,8 @@ export class LiveTranslationWS {
     targetLang: string;
     autoDetect: boolean;
     provider?: string;
+    role?: 'speaker' | 'listener';
+    roomId?: string;
   }) {
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
       this.setStatus('error');
@@ -256,4 +301,8 @@ export class LiveTranslationWS {
       this.connect(config);
     }, delay);
   }
+}
+
+function jsonParse(str: string): Record<string, unknown> {
+  return JSON.parse(str);
 }

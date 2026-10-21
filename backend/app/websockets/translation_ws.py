@@ -1,5 +1,5 @@
 """
-LiveVoice AI - Streaming WebSocket Endpoint
+LiveVoice AI - Streaming WebSocket Endpoint with Multi-Listener Room Support
 """
 
 import json
@@ -29,9 +29,13 @@ async def websocket_translation_endpoint(websocket: WebSocket):
                         auto_detect = data.get("auto_detect", False)
                         provider = data.get("provider", settings.AI_PROVIDER)
                         voice = data.get("voice")
+                        role = data.get("role", "speaker")  # "speaker" or "listener"
+                        room_id = data.get("room_id")
 
                         current_session = await session_manager.create_session(
                             websocket=websocket,
+                            role=role,
+                            room_id=room_id,
                             source_lang=source_lang,
                             target_lang=target_lang,
                             auto_detect=auto_detect,
@@ -41,6 +45,8 @@ async def websocket_translation_endpoint(websocket: WebSocket):
                         await websocket.send_json({
                             "type": "session_started",
                             "session_id": current_session.session_id,
+                            "role": role,
+                            "room_id": room_id,
                             "source_lang": source_lang,
                             "target_lang": target_lang
                         })
@@ -49,7 +55,8 @@ async def websocket_translation_endpoint(websocket: WebSocket):
                         current_session.update_config(
                             source_lang=data.get("source_lang"),
                             target_lang=data.get("target_lang"),
-                            auto_detect=data.get("auto_detect")
+                            auto_detect=data.get("auto_detect"),
+                            voice=data.get("voice")
                         )
 
                     elif msg_type == "text_input" and current_session:
@@ -57,6 +64,15 @@ async def websocket_translation_endpoint(websocket: WebSocket):
                         s_lang = data.get("source_lang")
                         t_lang = data.get("target_lang")
                         await current_session.process_direct_text(text, s_lang, t_lang)
+
+                    elif msg_type == "reaction" and current_session and current_session.room_id:
+                        emoji = data.get("emoji", "👏")
+                        sender_name = data.get("sender_name", "Listener")
+                        await session_manager.broadcast_reaction(
+                            current_session.room_id,
+                            emoji=emoji,
+                            sender_name=sender_name
+                        )
 
                     elif msg_type == "ping":
                         await websocket.send_json({"type": "pong"})

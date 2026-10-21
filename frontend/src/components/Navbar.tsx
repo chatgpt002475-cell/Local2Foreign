@@ -1,8 +1,8 @@
 import React from 'react';
-import { Mic, Globe, Activity, Settings, Radio } from 'lucide-react';
+import { Mic, Headphones, Globe, Settings, Radio } from 'lucide-react';
 import { ConnectionStatus } from '../services/websocket';
 
-export type TabType = 'translator' | 'languages' | 'diagnostics' | 'settings';
+export type TabType = 'speaker' | 'listener' | 'translator' | 'languages' | 'diagnostics' | 'settings';
 
 interface NavbarProps {
   currentTab: TabType;
@@ -48,59 +48,75 @@ export const Navbar: React.FC<NavbarProps> = ({
                 Local 2 Foreign
               </span>
             </div>
-            <p className="text-xs text-slate-400 hidden sm:block">Real-Time Streaming Voice Translation</p>
+            <p className="text-xs text-slate-400 hidden sm:block">Speaker &amp; Listener Voice Platform</p>
           </div>
         </div>
 
         {/* Navigation Tabs */}
-        <nav className="flex items-center gap-1 bg-slate-900/90 p-1 rounded-xl border border-slate-800">
+        <nav className="flex items-center gap-1 bg-slate-900/90 p-1 rounded-xl border border-slate-800 overflow-x-auto">
+          {/* Speaker Studio */}
+          <button
+            onClick={() => onTabChange('speaker')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all whitespace-nowrap ${
+              currentTab === 'speaker'
+                ? 'bg-red-600 text-white shadow-md shadow-red-600/30'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+            }`}
+          >
+            <Mic className="w-3.5 h-3.5" />
+            <span>Speaker Studio</span>
+          </button>
+
+          {/* Listener Portal */}
+          <button
+            onClick={() => onTabChange('listener')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all whitespace-nowrap ${
+              currentTab === 'listener'
+                ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+            }`}
+          >
+            <Headphones className="w-3.5 h-3.5" />
+            <span>Listener Portal</span>
+          </button>
+
+          {/* 1:1 Live Translator */}
           <button
             onClick={() => onTabChange('translator')}
-            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-sm font-medium transition-all ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all whitespace-nowrap ${
               currentTab === 'translator'
                 ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
             }`}
           >
-            <Mic className="w-4 h-4" />
-            <span>Live Translator</span>
+            <Radio className="w-3.5 h-3.5" />
+            <span>1:1 Translator</span>
           </button>
 
+          {/* 20 Languages */}
           <button
             onClick={() => onTabChange('languages')}
-            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-sm font-medium transition-all ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all whitespace-nowrap ${
               currentTab === 'languages'
                 ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
             }`}
           >
-            <Globe className="w-4 h-4" />
-            <span>Language Packs</span>
-            <span className="text-[11px] bg-slate-800 px-1.5 py-0.2 rounded text-slate-300 font-mono">20</span>
+            <Globe className="w-3.5 h-3.5" />
+            <span>Languages</span>
+            <span className="text-[10px] bg-slate-800 px-1 py-0.2 rounded text-slate-300 font-mono">20</span>
           </button>
 
-          <button
-            onClick={() => onTabChange('diagnostics')}
-            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-sm font-medium transition-all ${
-              currentTab === 'diagnostics'
-                ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
-            }`}
-          >
-            <Activity className="w-4 h-4" />
-            <span>Diagnostics</span>
-          </button>
-
+          {/* Settings */}
           <button
             onClick={() => onTabChange('settings')}
-            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-sm font-medium transition-all ${
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
               currentTab === 'settings'
-                ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+                ? 'bg-indigo-600 text-white'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
             }`}
           >
-            <Settings className="w-4 h-4" />
-            <span>Settings</span>
+            <Settings className="w-3.5 h-3.5" />
           </button>
         </nav>
 
