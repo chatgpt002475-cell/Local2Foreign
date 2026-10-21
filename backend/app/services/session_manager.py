@@ -25,7 +25,9 @@ class TranslationSession:
         target_lang: str = "en",
         auto_detect: bool = False,
         provider: str = "local_edge",
-        voice: Optional[str] = None
+        voice: Optional[str] = None,
+        pitch: str = "+0Hz",
+        rate: str = "+0%"
     ):
         self.session_id = session_id
         self.websocket = websocket
@@ -36,6 +38,8 @@ class TranslationSession:
         self.auto_detect = auto_detect
         self.provider = provider
         self.voice = voice
+        self.pitch = pitch
+        self.rate = rate
 
         self.seq_id = 0
         self.created_at = time.time()
@@ -54,7 +58,9 @@ class TranslationSession:
         source_lang: Optional[str] = None,
         target_lang: Optional[str] = None,
         auto_detect: Optional[bool] = None,
-        voice: Optional[str] = None
+        voice: Optional[str] = None,
+        pitch: Optional[str] = None,
+        rate: Optional[str] = None
     ):
         if source_lang:
             self.source_lang = source_lang
@@ -64,6 +70,10 @@ class TranslationSession:
             self.auto_detect = auto_detect
         if voice:
             self.voice = voice
+        if pitch:
+            self.pitch = pitch
+        if rate:
+            self.rate = rate
         self.last_activity = time.time()
 
     async def handle_audio_frame(self, pcm_bytes: bytes):
@@ -93,7 +103,11 @@ class TranslationSession:
                 language=self.source_lang,
                 auto_detect=self.auto_detect
             )
-            source_text = asr_res.get("text", "")
+            source_text = asr_res.get("text", "").strip()
+            # If silence / no speech detected: stay silent and hold!
+            if not source_text:
+                return
+
             asr_ms = asr_res.get("latency_ms", 0)
 
             # Send partial/in-progress event to speaker
@@ -124,7 +138,9 @@ class TranslationSession:
                 b64_audio, tts_ms, fmt = await tts_service.synthesize_speech(
                     trans_text,
                     language=self.target_lang,
-                    voice=self.voice
+                    voice=self.voice,
+                    rate=self.rate,
+                    pitch=self.pitch
                 )
 
             total_ms = int((time.perf_counter() - start_total) * 1000)
@@ -166,6 +182,10 @@ class TranslationSession:
 
     async def process_direct_text(self, text: str, source_lang: Optional[str] = None, target_lang: Optional[str] = None):
         """Allows instant text-input testing of the MT & TTS pipeline without microphone."""
+        clean_text = text.strip() if text else ""
+        if not clean_text:
+            return
+
         async with self.processing_lock:
             self.seq_id += 1
             current_seq = self.seq_id
@@ -176,13 +196,15 @@ class TranslationSession:
             t_lang = target_lang or self.target_lang
 
             # Translate
-            trans_text, trans_ms = await translation_service.translate(text, s_lang, t_lang)
+            trans_text, trans_ms = await translation_service.translate(clean_text, s_lang, t_lang)
 
             # Synthesize
             b64_audio, tts_ms, fmt = await tts_service.synthesize_speech(
                 trans_text,
                 language=t_lang,
-                voice=self.voice
+                voice=self.voice,
+                rate=self.rate,
+                pitch=self.pitch
             )
 
             total_ms = int((time.perf_counter() - start_total) * 1000)
@@ -274,7 +296,9 @@ class SessionManager:
         target_lang: str = "en",
         auto_detect: bool = False,
         provider: str = "local_edge",
-        voice: Optional[str] = None
+        voice: Optional[str] = None,
+        pitch: str = "+0Hz",
+        rate: str = "+0%"
     ) -> TranslationSession:
         async with self.lock:
             # Enforce max concurrent sessions limit
@@ -292,7 +316,9 @@ class SessionManager:
                 target_lang=target_lang,
                 auto_detect=auto_detect,
                 provider=provider,
-                voice=voice
+                voice=voice,
+                pitch=pitch,
+                rate=rate
             )
             self.sessions[session_id] = session
 
@@ -391,7 +417,9 @@ class SessionManager:
             b64_audio, tts_ms, fmt = await tts_service.synthesize_speech(
                 trans_text,
                 language=target_lang,
-                voice=listeners[0].voice if listeners else None
+                voice=listeners[0].voice if listeners else None,
+                rate=listeners[0].rate if listeners else "+0%",
+                pitch=listeners[0].pitch if listeners else "+0Hz"
             )
 
             total_ms = int((time.perf_counter() - start_t) * 1000)

@@ -23,11 +23,11 @@ class TTSService:
         text: str,
         language: str = "en",
         voice: Optional[str] = None,
-        rate: float = 1.0,
-        pitch: float = 1.0
+        rate: str = "+0%",
+        pitch: str = "+0Hz"
     ) -> Tuple[str, int, str]:
         """
-        Synthesizes spoken audio from text.
+        Synthesizes spoken audio from text with custom voice, pitch and rate.
         Returns:
             (base64_audio, latency_ms, format)
         """
@@ -40,15 +40,16 @@ class TTSService:
         lang_info = LANGUAGE_PACKS.get(language, LANGUAGE_PACKS["en"])
         selected_voice = voice or lang_info.default_voice
 
-        # Format rate string e.g. "+0%", "+10%", "-10%"
-        rate_percent = int((rate - 1.0) * 100)
-        rate_str = f"+{rate_percent}%" if rate_percent >= 0 else f"{rate_percent}%"
+        # Format rate string if float was passed
+        rate_str = rate if isinstance(rate, str) else f"{int((rate - 1.0) * 100):+d}%"
+        pitch_str = pitch if isinstance(pitch, str) else f"{int(pitch):+d}Hz"
 
         try:
             communicate = edge_tts.Communicate(
                 text=clean_text,
                 voice=selected_voice,
-                rate=rate_str
+                rate=rate_str,
+                pitch=pitch_str
             )
 
             async def _stream_chunks():
@@ -58,7 +59,7 @@ class TTSService:
                         chunks.append(chunk["data"])
                 return chunks
 
-            audio_chunks = await asyncio.wait_for(_stream_chunks(), timeout=4.0)
+            audio_chunks = await asyncio.wait_for(_stream_chunks(), timeout=4.5)
 
             if audio_chunks:
                 raw_mp3 = b"".join(audio_chunks)

@@ -66,6 +66,8 @@ export class LiveTranslationWS {
     autoDetect: boolean;
     provider?: string;
     voice?: string;
+    pitch?: string;
+    rate?: string;
     role?: 'speaker' | 'listener';
     roomId?: string;
   }) {
@@ -91,6 +93,8 @@ export class LiveTranslationWS {
           auto_detect: config.autoDetect,
           provider: config.provider || 'local_edge',
           voice: config.voice,
+          pitch: config.pitch || '+0Hz',
+          rate: config.rate || '+0%',
         });
       };
 
@@ -231,13 +235,35 @@ export class LiveTranslationWS {
     });
   }
 
-  public updateLanguages(sourceLang: string, targetLang: string, autoDetect: boolean, voice?: string) {
+  public updateLanguages(sourceLang: string, targetLang: string, autoDetect: boolean, voice?: string, pitch?: string, rate?: string) {
     this.sendJSON({
       type: 'update_config',
       source_lang: sourceLang,
       target_lang: targetLang,
       auto_detect: autoDetect,
       voice: voice,
+      pitch: pitch,
+      rate: rate,
+    });
+  }
+
+  public updateVoice(voice: string, pitch?: string, rate?: string) {
+    this.sendJSON({
+      type: 'update_config',
+      voice,
+      pitch,
+      rate,
+    });
+  }
+
+  public sendSpeakerSpeech(text: string, sourceLang?: string, targetLang?: string) {
+    const clean = text.trim();
+    if (!clean) return;
+    this.sendJSON({
+      type: 'speaker_speech',
+      text: clean,
+      source_lang: sourceLang,
+      target_lang: targetLang,
     });
   }
 

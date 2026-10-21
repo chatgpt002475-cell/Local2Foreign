@@ -5,12 +5,13 @@ import {
   VolumeX,
   Radio,
   Sliders,
-  Hand,
   AlertCircle,
+  AudioWaveform,
 } from 'lucide-react';
 import { LanguageCapability, TranscriptItem } from '../types';
 import { LiveTranslationWS, RoomStats } from '../services/websocket';
 import { globalAudioPlayer } from '../services/audioPlayer';
+import { VoiceSelectorModal } from './VoiceSelectorModal';
 
 interface ListenerDashboardProps {
   languages: LanguageCapability[];
@@ -23,7 +24,7 @@ export const ListenerDashboard: React.FC<ListenerDashboardProps> = ({
   initialRoomId = 'LIVE-8821',
   provider,
 }) => {
-  const [roomId, setRoomId] = useState(initialRoomId);
+  const [roomId] = useState(initialRoomId);
   const [isConnected, setIsConnected] = useState(false);
   const [targetLang, setTargetLang] = useState('en'); // Default to English for listener
   const [transcripts, setTranscripts] = useState<TranscriptItem[]>([]);
@@ -34,6 +35,12 @@ export const ListenerDashboard: React.FC<ListenerDashboardProps> = ({
   const [activeAudioId, setActiveAudioId] = useState<string | null>(null);
   const [reactionSent, setReactionSent] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Voice Selection State
+  const [selectedVoice, setSelectedVoice] = useState('en-US-AriaNeural');
+  const [selectedPitch, setSelectedPitch] = useState('+0Hz');
+  const [selectedRate, setSelectedRate] = useState('+0%');
+  const [isVoiceModalOpen, setIsVoiceModalOpen] = useState(false);
 
   const [roomStats, setRoomStats] = useState<RoomStats>({
     room_id: roomId,
@@ -81,6 +88,9 @@ export const ListenerDashboard: React.FC<ListenerDashboardProps> = ({
         targetLang,
         autoDetect: false,
         provider,
+        voice: selectedVoice,
+        pitch: selectedPitch,
+        rate: selectedRate,
         role: 'listener',
         roomId,
       });
@@ -88,7 +98,7 @@ export const ListenerDashboard: React.FC<ListenerDashboardProps> = ({
       console.error('Failed to connect to room:', err);
       setErrorMessage(err instanceof Error ? err.message : 'Connection failed');
     }
-  }, [roomId, targetLang, provider, handleTranscript]);
+  }, [roomId, targetLang, provider, selectedVoice, selectedPitch, selectedRate, handleTranscript]);
 
   const disconnectFromRoom = useCallback(() => {
     if (wsRef.current) {
@@ -101,8 +111,20 @@ export const ListenerDashboard: React.FC<ListenerDashboardProps> = ({
   // Update target language dynamically on the fly
   const handleLanguageChange = (newLang: string) => {
     setTargetLang(newLang);
+    const langObj = languages.find((l) => l.code === newLang);
+    const defVoice = langObj?.default_voice || 'en-US-AriaNeural';
+    setSelectedVoice(defVoice);
     if (wsRef.current && isConnected) {
-      wsRef.current.updateLanguages('te', newLang, false);
+      wsRef.current.updateLanguages('te', newLang, false, defVoice, selectedPitch, selectedRate);
+    }
+  };
+
+  const handleApplyVoice = (voice: string, pitch: string, rate: string) => {
+    setSelectedVoice(voice);
+    setSelectedPitch(pitch);
+    setSelectedRate(rate);
+    if (wsRef.current && isConnected) {
+      wsRef.current.updateVoice(voice, pitch, rate);
     }
   };
 
@@ -117,7 +139,6 @@ export const ListenerDashboard: React.FC<ListenerDashboardProps> = ({
   // Unlock audio for mobile browsers that require user gesture
   const unlockAudioContext = () => {
     setAudioUnlocked(true);
-    // Play tiny silent chime to unlock iOS / Android audio pipeline
     const audio = new Audio();
     audio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
     audio.play().catch(() => {});
@@ -160,7 +181,7 @@ export const ListenerDashboard: React.FC<ListenerDashboardProps> = ({
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
-      {/* Mobile Audio Activation Banner if needed */}
+      {/* Mobile Audio Activation Banner */}
       {!audioUnlocked && (
         <div className="bg-gradient-to-r from-indigo-900/90 to-purple-900/90 border border-indigo-700/80 rounded-2xl p-4 shadow-xl flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
@@ -168,7 +189,7 @@ export const ListenerDashboard: React.FC<ListenerDashboardProps> = ({
             <div>
               <h4 className="text-sm font-bold text-white">Enable Live Spoken Voice</h4>
               <p className="text-xs text-indigo-200">
-                Mobile browsers require a single tap to enable automatic audio playback.
+                Tap here to activate real-time translated voice playback.
               </p>
             </div>
           </div>
@@ -203,36 +224,43 @@ export const ListenerDashboard: React.FC<ListenerDashboardProps> = ({
                 )}
               </div>
               <p className="text-xs text-slate-400 mt-0.5">
-                Room: <span className="font-mono text-indigo-400 font-bold">{roomId}</span> &bull; {roomStats.listener_count} Listener{roomStats.listener_count === 1 ? '' : 's'} in Room
+                Listening in Room: <span className="font-mono text-indigo-400 font-bold">{roomId}</span>
+                {targetLangInfo && <span className="ml-2 text-indigo-300">&bull; {targetLangInfo.name} ({targetLangInfo.native_name})</span>}
               </p>
             </div>
           </div>
 
-          {/* Change Room button */}
+          {/* Quick Audience Reactions */}
           <div className="flex items-center gap-2">
-            <input
-              type="text"
-              value={roomId}
-              onChange={(e) => setRoomId(e.target.value.toUpperCase())}
-              placeholder="Room ID"
-              className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-indigo-400 font-mono w-28 uppercase"
-            />
-            <button
-              onClick={() => {
-                disconnectFromRoom();
-                connectToRoom();
-              }}
-              className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold"
-            >
-              Switch Room
-            </button>
+            <span className="text-xs text-slate-400 mr-1 hidden sm:inline">React:</span>
+            {['👏', '❤️', '💡', '🔥'].map((emoji) => (
+              <button
+                key={emoji}
+                onClick={() => handleSendReaction(emoji)}
+                className="w-9 h-9 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 flex items-center justify-center text-base hover:scale-110 active:scale-95 transition-all shadow-sm"
+              >
+                {emoji}
+              </button>
+            ))}
+            {reactionSent && (
+              <span className="text-xs text-emerald-400 font-semibold animate-pulse ml-1">
+                Sent {reactionSent}!
+              </span>
+            )}
           </div>
         </div>
+
+        {errorMessage && (
+          <div className="mt-3 flex items-center gap-2 p-3 bg-red-950/60 border border-red-800 text-red-300 text-xs rounded-xl">
+            <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+            <span>{errorMessage}</span>
+          </div>
+        )}
       </div>
 
-      {/* Language Selection & Audio Controls Card */}
+      {/* Language Selection, Voice & Audio Controls Card */}
       <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-center">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
           {/* Target Language Selector */}
           <div>
             <label className="text-xs font-semibold uppercase tracking-wider text-slate-400 block mb-1.5">
@@ -241,7 +269,7 @@ export const ListenerDashboard: React.FC<ListenerDashboardProps> = ({
             <select
               value={targetLang}
               onChange={(e) => handleLanguageChange(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-base text-white font-semibold focus:outline-none focus:border-indigo-500 shadow-inner"
+              className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white font-semibold focus:outline-none focus:border-indigo-500 shadow-inner"
             >
               {languages.map((l) => (
                 <option key={l.code} value={l.code}>
@@ -251,19 +279,43 @@ export const ListenerDashboard: React.FC<ListenerDashboardProps> = ({
             </select>
           </div>
 
-          {/* Audio Controls */}
-          <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2">
+          {/* Voice & Tone Button */}
+          <div>
+            <label className="text-xs font-semibold uppercase tracking-wider text-slate-400 block mb-1.5">
+              Voice & Regional Tone
+            </label>
+            <button
+              type="button"
+              onClick={() => setIsVoiceModalOpen(true)}
+              className="w-full flex items-center justify-between px-4 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-slate-200 text-sm font-semibold hover:border-indigo-500 transition"
+            >
+              <div className="flex items-center gap-2 truncate">
+                <AudioWaveform className="w-4 h-4 text-purple-400 shrink-0" />
+                <span className="truncate">
+                  {selectedVoice.includes('Guy') || selectedVoice.includes('Ryan') || selectedVoice.includes('Prabhat')
+                    ? 'Men (Male Voice)'
+                    : 'Women (Female Voice)'}
+                </span>
+              </div>
+              <span className="text-[10px] font-mono bg-slate-800 px-1.5 py-0.5 rounded text-indigo-300">
+                {selectedPitch}
+              </span>
+            </button>
+          </div>
+
+          {/* Audio Volume Controls */}
+          <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-1.5">
             <div className="flex items-center justify-between text-xs text-slate-400">
               <span className="font-medium flex items-center gap-1.5">
-                <Sliders className="w-3.5 h-3.5 text-indigo-400" /> Output Volume
+                <Sliders className="w-3.5 h-3.5 text-indigo-400" /> Volume
               </span>
               <span>{Math.round(volume * 100)}%</span>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
               <button
                 onClick={toggleMute}
-                className={`p-2 rounded-lg border transition-all ${
+                className={`p-1.5 rounded-lg border transition-all ${
                   isMuted
                     ? 'bg-amber-950/40 border-amber-800/80 text-amber-400'
                     : 'bg-slate-800 border-slate-700 text-slate-300 hover:text-white'
@@ -288,146 +340,125 @@ export const ListenerDashboard: React.FC<ListenerDashboardProps> = ({
         {/* Audio state badge */}
         <div className="flex items-center justify-between text-xs text-slate-400 pt-2 border-t border-slate-800/80">
           <div className="flex items-center gap-2">
-            <span className={`w-2 h-2 rounded-full ${activeAudioId ? 'bg-indigo-500 animate-ping' : 'bg-emerald-500'}`} />
+            <span
+              className={`w-2 h-2 rounded-full ${
+                activeAudioId ? 'bg-emerald-500 animate-ping' : 'bg-slate-600'
+              }`}
+            />
             <span>
-              {activeAudioId ? 'Playing translated speech...' : 'Audio output stream ready'}
+              {activeAudioId ? 'Playing live translation voice...' : 'Holding silence (waiting for speaker)'}
             </span>
           </div>
 
-          <label className="flex items-center gap-2 cursor-pointer">
+          <label className="flex items-center gap-2 cursor-pointer select-none">
             <input
               type="checkbox"
               checked={showOriginal}
               onChange={(e) => setShowOriginal(e.target.checked)}
-              className="accent-indigo-600 rounded"
+              className="rounded bg-slate-800 border-slate-700 text-indigo-600 focus:ring-0"
             />
-            <span>Show Original Speaker Text</span>
+            <span>Show Original Language Transcript</span>
           </label>
         </div>
-
-        {errorMessage && (
-          <div className="flex items-center gap-3 p-3 bg-red-950/60 border border-red-800/60 rounded-xl text-red-200 text-xs">
-            <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
-            <span>{errorMessage}</span>
-          </div>
-        )}
       </div>
 
-      {/* Primary Live Subtitle Focus Card */}
-      <div className="bg-gradient-to-br from-indigo-950/50 via-slate-900 to-purple-950/40 border border-indigo-900/60 rounded-3xl p-6 sm:p-8 shadow-2xl relative overflow-hidden">
-        <div className="flex items-center justify-between mb-4">
-          <span className="text-xs font-bold uppercase tracking-wider text-indigo-400 flex items-center gap-2">
-            <Radio className="w-4 h-4 text-indigo-400 animate-pulse" />
-            Live Spoken Subtitles &bull; {targetLangInfo?.name}
-          </span>
-          {latestTranscript?.metrics && (
-            <span className="text-[11px] font-mono text-slate-400 bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
-              Delay: {latestTranscript.metrics.total_turnaround_ms}ms
-            </span>
+      {/* Main Focus: Live Prominent Translated Speech Stage */}
+      {latestTranscript ? (
+        <div
+          className={`p-6 sm:p-8 rounded-2xl border transition-all shadow-2xl relative overflow-hidden ${
+            activeAudioId === latestTranscript.id
+              ? 'bg-indigo-950/40 border-indigo-500 ring-2 ring-indigo-500/20'
+              : 'bg-slate-900/90 border-slate-800'
+          }`}
+        >
+          {activeAudioId === latestTranscript.id && (
+            <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 animate-pulse" />
           )}
-        </div>
 
-        {latestTranscript ? (
+          <div className="flex items-center justify-between mb-4">
+            <span className="text-xs font-bold uppercase tracking-wider text-indigo-400 flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-indigo-500 animate-ping" />
+              Live Translation
+            </span>
+            <span className="text-xs text-slate-500 font-mono">
+              {new Date(latestTranscript.timestamp).toLocaleTimeString()}
+            </span>
+          </div>
+
           <div className="space-y-4">
-            {/* Big Translated Text */}
-            <div className="text-2xl sm:text-3xl font-bold text-white tracking-tight leading-snug">
-              {latestTranscript.translated_text || 'Listening...'}
+            <div>
+              <p className="text-2xl sm:text-3xl font-bold text-white tracking-tight leading-snug">
+                {latestTranscript.translated_text}
+              </p>
             </div>
 
-            {/* Optional Original Text */}
-            {showOriginal && latestTranscript.source_text && (
-              <div className="pt-3 border-t border-indigo-900/40 text-sm text-slate-300">
-                <span className="text-[11px] text-slate-400 uppercase tracking-wider block mb-0.5 font-semibold">
-                  Original ({latestTranscript.source_lang.toUpperCase()}):
+            {showOriginal && (
+              <div className="pt-4 border-t border-slate-800/80">
+                <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider block mb-1">
+                  Original Speech ({latestTranscript.source_lang.toUpperCase()}):
                 </span>
-                <p className="italic font-normal">{latestTranscript.source_text}</p>
+                <p className="text-base text-slate-300 font-medium">
+                  {latestTranscript.source_text}
+                </p>
               </div>
             )}
           </div>
-        ) : (
-          <div className="py-12 text-center text-slate-500">
-            <Headphones className="w-12 h-12 mx-auto mb-2 opacity-50" />
-            <p className="text-sm">Waiting for speaker to begin talking...</p>
-          </div>
-        )}
-      </div>
-
-      {/* Audience Interaction & Raise Hand Deck */}
-      <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-xl flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <span className="text-xs font-semibold uppercase tracking-wider text-slate-400 block mb-1">
-            React to Speaker
-          </span>
-          <p className="text-xs text-slate-500">Send instant feedback to the presenter</p>
         </div>
-
-        <div className="flex items-center gap-2">
-          {/* Reaction emojis */}
-          {['👏', '👍', '❤️', '🔥', '💡'].map((emoji) => (
-            <button
-              key={emoji}
-              onClick={() => handleSendReaction(emoji)}
-              className="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-lg transition-transform transform active:scale-125"
-            >
-              {emoji}
-            </button>
-          ))}
-
-          {/* Raise Hand Button */}
-          <button
-            onClick={() => handleSendReaction('🙋‍♂️')}
-            className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-all shadow-md shadow-indigo-600/30 active:scale-95"
-          >
-            <Hand className="w-4 h-4" />
-            <span>Raise Hand</span>
-          </button>
+      ) : (
+        <div className="p-12 text-center rounded-2xl border border-dashed border-slate-800 bg-slate-900/30">
+          <Radio className="w-12 h-12 text-slate-700 mx-auto mb-3 animate-pulse" />
+          <h3 className="text-lg font-bold text-white mb-1">Waiting for Speaker</h3>
+          <p className="text-sm text-slate-400 max-w-md mx-auto">
+            The broadcast room is open. As soon as the speaker speaks, live translated voice will play automatically.
+          </p>
         </div>
+      )}
 
-        {reactionSent && (
-          <div className="w-full text-right text-xs text-emerald-400 font-semibold animate-pulse">
-            Sent {reactionSent} to presenter!
-          </div>
-        )}
-      </div>
-
-      {/* Complete Utterance History Feed */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-white tracking-tight">Full Session History</h3>
-          <span className="text-xs text-slate-400">{transcripts.length} sentences</span>
-        </div>
-
-        <div className="space-y-3">
-          {[...transcripts].reverse().map((item) => (
-            <div
-              key={item.id}
-              className="p-4 bg-slate-900/80 border border-slate-800 rounded-2xl flex items-start justify-between gap-4"
-            >
-              <div className="space-y-1">
-                <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider">
-                  #{item.seq_id} &bull; {new Date(item.timestamp).toLocaleTimeString()}
-                </span>
-                <p className="text-base text-white font-semibold leading-relaxed">
-                  {item.translated_text}
-                </p>
-                {showOriginal && (
-                  <p className="text-xs text-slate-400 italic">{item.source_text}</p>
-                )}
-              </div>
-
-              {item.audio_base64 && (
-                <button
-                  onClick={() => replayUtterance(item)}
-                  title="Replay translated audio"
-                  className="p-2 rounded-xl bg-slate-800 hover:bg-indigo-600 text-slate-300 hover:text-white transition-all shrink-0 mt-1"
+      {/* Transcript History */}
+      {transcripts.length > 1 && (
+        <div className="space-y-3 pt-4">
+          <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wider">
+            Previous Utterances
+          </h3>
+          <div className="space-y-2.5">
+            {[...transcripts]
+              .slice(0, -1)
+              .reverse()
+              .map((item) => (
+                <div
+                  key={item.id}
+                  className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 hover:border-slate-700 transition flex items-center justify-between gap-4"
                 >
-                  <Volume2 className="w-4 h-4" />
-                </button>
-              )}
-            </div>
-          ))}
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-white truncate">{item.translated_text}</p>
+                    {showOriginal && (
+                      <p className="text-xs text-slate-400 truncate mt-0.5">{item.source_text}</p>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => replayUtterance(item)}
+                    className="p-2 rounded-lg bg-slate-800 text-slate-300 hover:text-white hover:bg-slate-700 transition shrink-0"
+                    title="Replay Voice"
+                  >
+                    <Volume2 className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* Voice Customization Modal */}
+      <VoiceSelectorModal
+        isOpen={isVoiceModalOpen}
+        onClose={() => setIsVoiceModalOpen(false)}
+        targetLang={targetLang}
+        languages={languages}
+        selectedVoice={selectedVoice}
+        selectedPitch={selectedPitch}
+        selectedRate={selectedRate}
+        onApplyVoice={handleApplyVoice}
+      />
     </div>
   );
 };

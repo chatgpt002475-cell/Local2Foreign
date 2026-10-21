@@ -29,6 +29,8 @@ async def websocket_translation_endpoint(websocket: WebSocket):
                         auto_detect = data.get("auto_detect", False)
                         provider = data.get("provider", settings.AI_PROVIDER)
                         voice = data.get("voice")
+                        pitch = data.get("pitch", "+0Hz")
+                        rate = data.get("rate", "+0%")
                         role = data.get("role", "speaker")  # "speaker" or "listener"
                         room_id = data.get("room_id")
 
@@ -40,7 +42,9 @@ async def websocket_translation_endpoint(websocket: WebSocket):
                             target_lang=target_lang,
                             auto_detect=auto_detect,
                             provider=provider,
-                            voice=voice
+                            voice=voice,
+                            pitch=pitch,
+                            rate=rate
                         )
                         await websocket.send_json({
                             "type": "session_started",
@@ -56,14 +60,17 @@ async def websocket_translation_endpoint(websocket: WebSocket):
                             source_lang=data.get("source_lang"),
                             target_lang=data.get("target_lang"),
                             auto_detect=data.get("auto_detect"),
-                            voice=data.get("voice")
+                            voice=data.get("voice"),
+                            pitch=data.get("pitch"),
+                            rate=data.get("rate")
                         )
 
-                    elif msg_type == "text_input" and current_session:
-                        text = data.get("text", "")
+                    elif (msg_type == "text_input" or msg_type == "speaker_speech") and current_session:
+                        text = data.get("text", "").strip()
                         s_lang = data.get("source_lang")
                         t_lang = data.get("target_lang")
-                        await current_session.process_direct_text(text, s_lang, t_lang)
+                        if text:
+                            await current_session.process_direct_text(text, s_lang, t_lang)
 
                     elif msg_type == "reaction" and current_session and current_session.room_id:
                         emoji = data.get("emoji", "👏")

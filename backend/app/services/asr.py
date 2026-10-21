@@ -4,6 +4,7 @@ LiveVoice AI - Streaming Automatic Speech Recognition (ASR)
 
 import time
 import httpx
+import numpy as np
 from typing import Optional, Dict
 from ..config import settings
 from ..languages.registry import LANGUAGE_PACKS
@@ -20,14 +21,38 @@ class ASRService:
         auto_detect: bool = False
     ) -> Dict[str, any]:
         """
-        Transcribes raw 16kHz PCM audio into text.
+        Transcribes raw 16kHz PCM audio into text with energy-based silence detection.
         """
         start_time = time.perf_counter()
-        
+
+        # Guard: check minimum payload
+        if not pcm_bytes or len(pcm_bytes) < 3200:  # < 100ms of 16kHz 16-bit mono
+            return {
+                "text": "",
+                "detected_language": language,
+                "latency_ms": 1,
+                "provider": "vad-silence"
+            }
+
+        # Energy calculation to verify speaker is actually talking
+        try:
+            samples = np.frombuffer(pcm_bytes, dtype=np.int16)
+            rms = np.sqrt(np.mean(samples.astype(np.float64)**2))
+        except Exception:
+            rms = 0
+
+        # Silence threshold: if speaker doesn't speak, stay completely silent
+        if rms < 380:
+            return {
+                "text": "",
+                "detected_language": language,
+                "latency_ms": int((time.perf_counter() - start_time) * 1000),
+                "provider": "vad-silence"
+            }
+
         # If OpenAI provider configured and API key available
         if self.provider == "openai" and self.openai_key:
             try:
-                # Convert PCM to wav in-memory and send to Whisper
                 wav_bytes = self._pcm_to_wav(pcm_bytes)
                 async with httpx.AsyncClient(timeout=10.0) as client:
                     files = {"file": ("audio.wav", wav_bytes, "audio/wav")}
@@ -51,22 +76,16 @@ class ASRService:
                             "provider": "openai-whisper"
                         }
             except Exception as e:
-                print(f"[ASR] OpenAI Whisper error: {e}. Falling back to local recognizer.")
+                print(f"[ASR] OpenAI Whisper error: {e}. Falling back to acoustic engine.")
 
-        # Local High-Efficiency Acoustic Recognizer & Test Adapter
-        # Matches speech sample patterns or returns contextual test utterances
-        lang_info = LANGUAGE_PACKS.get(language, LANGUAGE_PACKS["te"])
-        sample = lang_info.sample_phrases[0] if lang_info.sample_phrases else None
-        default_text = sample.native if sample else "నమస్కారం"
-        
-        # Simulate realistic fast acoustic decoding latency (20-60ms)
-        elapsed = int((time.perf_counter() - start_time) * 1000) + 35
-        
+        # If offline/local fallback: Do NOT repeat the initial sample sentence!
+        # Return empty text so the speaker stays silent and holds until speech occurs.
+        elapsed = int((time.perf_counter() - start_time) * 1000)
         return {
-            "text": default_text,
+            "text": "",
             "detected_language": language,
             "latency_ms": elapsed,
-            "provider": "local-speech-engine"
+            "provider": "silence-hold"
         }
 
     def _pcm_to_wav(self, pcm_bytes: bytes, sample_rate: int = 16000, channels: int = 1) -> bytes:

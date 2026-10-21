@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from .languages import languages_router
 from .diagnostics import diagnostics_router
 from .settings import settings_router
+from .voice import voice_router
 from ..services.translation import translation_service
 from ..services.tts import tts_service
 from ..services.asr import asr_service
@@ -19,6 +20,7 @@ api_router = APIRouter(prefix="/api")
 api_router.include_router(languages_router)
 api_router.include_router(diagnostics_router)
 api_router.include_router(settings_router)
+api_router.include_router(voice_router)
 
 class TranslateRequest(BaseModel):
     text: str
@@ -26,6 +28,8 @@ class TranslateRequest(BaseModel):
     target_lang: str
     synthesize_audio: Optional[bool] = True
     voice: Optional[str] = None
+    pitch: Optional[str] = "+0Hz"
+    rate: Optional[str] = "+0%"
 
 class TranslateResponse(BaseModel):
     source_text: str
@@ -51,7 +55,9 @@ async def translate_text(req: TranslateRequest):
         b64_audio, _tms, fmt = await tts_service.synthesize_speech(
             trans_text,
             language=req.target_lang,
-            voice=req.voice
+            voice=req.voice,
+            rate=req.rate or "+0%",
+            pitch=req.pitch or "+0Hz"
         )
 
     total_elapsed = int((time.perf_counter() - start) * 1000)

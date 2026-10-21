@@ -13,19 +13,47 @@ import {
   Play,
   Volume2,
   VolumeX,
+  AudioWaveform,
 } from 'lucide-react';
-import { LanguageCapability, TranscriptItem } from '../types';
+import { LanguageCapability, TranscriptItem, CustomVoiceProfile } from '../types';
 import { LiveTranslationWS, RoomStats, ListenerReaction } from '../services/websocket';
 import { AudioRecorder } from '../services/audioRecorder';
 import { globalAudioPlayer } from '../services/audioPlayer';
 import { AudioVisualizer } from './AudioVisualizer';
 import { TranscriptCard } from './TranscriptCard';
+import { VoiceSelectorModal } from './VoiceSelectorModal';
 
 interface SpeakerDashboardProps {
   languages: LanguageCapability[];
   initialRoomId?: string;
   provider: string;
 }
+
+const getWebSpeechLang = (code: string): string => {
+  const map: Record<string, string> = {
+    te: 'te-IN',
+    hi: 'hi-IN',
+    ta: 'ta-IN',
+    kn: 'kn-IN',
+    ml: 'ml-IN',
+    bn: 'bn-IN',
+    mr: 'mr-IN',
+    gu: 'gu-IN',
+    pa: 'pa-IN',
+    ur: 'ur-IN',
+    en: 'en-US',
+    es: 'es-ES',
+    fr: 'fr-FR',
+    de: 'de-DE',
+    pt: 'pt-BR',
+    it: 'it-IT',
+    ja: 'ja-JP',
+    ko: 'ko-KR',
+    zh: 'zh-CN',
+    ar: 'ar-SA',
+  };
+  return map[code] || 'en-US';
+};
 
 export const SpeakerDashboard: React.FC<SpeakerDashboardProps> = ({
   languages,
@@ -44,6 +72,13 @@ export const SpeakerDashboard: React.FC<SpeakerDashboardProps> = ({
   const [textInput, setTextInput] = useState('');
   const [isMuted, setIsMuted] = useState(false);
 
+  // Voice Management State
+  const [isVoiceModalOpen, setIsVoiceModalOpen] = useState(false);
+  const [selectedVoice, setSelectedVoice] = useState('en-US-AriaNeural');
+  const [selectedPitch, setSelectedPitch] = useState('+0Hz');
+  const [selectedRate, setSelectedRate] = useState('+0%');
+  const [customProfile, setCustomProfile] = useState<CustomVoiceProfile | null>(null);
+
   // Room Stats & Reactions from audience
   const [roomStats, setRoomStats] = useState<RoomStats>({
     room_id: roomId,
@@ -56,6 +91,8 @@ export const SpeakerDashboard: React.FC<SpeakerDashboardProps> = ({
   const wsRef = useRef<LiveTranslationWS | null>(null);
   const recorderRef = useRef<AudioRecorder | null>(null);
   const durationTimerRef = useRef<number | null>(null);
+  const isBroadcastingRef = useRef(false);
+  const speechRecognitionRef = useRef<any>(null);
 
   const sourceLangInfo = languages.find((l) => l.code === sourceLang);
 
@@ -80,9 +117,74 @@ export const SpeakerDashboard: React.FC<SpeakerDashboardProps> = ({
     setRecentReactions((prev) => [reaction, ...prev.slice(0, 9)]);
   }, []);
 
+  const startSpeechRecognition = useCallback((langCode: string) => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      console.warn('Web Speech API not supported in this browser. Fallback to acoustic VAD.');
+      return null;
+    }
+
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = getWebSpeechLang(langCode);
+
+      recognition.onresult = (event: any) => {
+        let interimText = '';
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          const transcriptSegment = event.results[i][0].transcript;
+          if (event.results[i].isFinal) {
+            const trimmed = transcriptSegment.trim();
+            if (trimmed.length > 0 && wsRef.current) {
+              wsRef.current.sendSpeakerSpeech(trimmed, langCode, 'en');
+            }
+          } else {
+            interimText += transcriptSegment;
+          }
+        }
+        if (interimText.trim()) {
+          setPartialTranscript({
+            id: 'interim-live',
+            seq_id: 999999,
+            timestamp: new Date().toISOString(),
+            source_lang: langCode,
+            target_lang: 'en',
+            source_text: interimText,
+            translated_text: 'Listening...',
+            is_final: false,
+          });
+        }
+      };
+
+      recognition.onerror = (e: any) => {
+        // 'no-speech' is triggered during natural pauses. System holds silent!
+        if (e.error !== 'no-speech' && e.error !== 'aborted') {
+          console.warn('Speech recognition status:', e.error);
+        }
+      };
+
+      recognition.onend = () => {
+        // Automatically resume recognition while broadcasting
+        if (isBroadcastingRef.current) {
+          try {
+            recognition.start();
+          } catch (_) {}
+        }
+      };
+
+      recognition.start();
+      return recognition;
+    } catch (err) {
+      console.warn('SpeechRecognition initialization notice:', err);
+      return null;
+    }
+  }, []);
+
   const startBroadcast = useCallback(async () => {
     setErrorMessage(null);
     try {
+      isBroadcastingRef.current = true;
       const recorder = new AudioRecorder();
       recorderRef.current = recorder;
 
@@ -99,10 +201,17 @@ export const SpeakerDashboard: React.FC<SpeakerDashboardProps> = ({
         targetLang: 'en',
         autoDetect: false,
         provider,
+        voice: selectedVoice,
+        pitch: selectedPitch,
+        rate: selectedRate,
         role: 'speaker',
         roomId,
       });
 
+      // Start continuous browser speech recognition for continuous Telugu/Hindi/English etc.
+      speechRecognitionRef.current = startSpeechRecognition(sourceLang);
+
+      // Start PCM audio streaming for visualizer and backend VAD energy meter
       await recorder.start((pcm16, volume) => {
         setCurrentVolume(volume);
         if (wsRef.current) {
@@ -121,9 +230,26 @@ export const SpeakerDashboard: React.FC<SpeakerDashboardProps> = ({
       setErrorMessage(msg);
       stopBroadcast();
     }
-  }, [sourceLang, provider, roomId, handleTranscript, handleListenerReaction]);
+  }, [
+    sourceLang,
+    provider,
+    roomId,
+    selectedVoice,
+    selectedPitch,
+    selectedRate,
+    handleTranscript,
+    handleListenerReaction,
+    startSpeechRecognition,
+  ]);
 
   const stopBroadcast = useCallback(() => {
+    isBroadcastingRef.current = false;
+    if (speechRecognitionRef.current) {
+      try {
+        speechRecognitionRef.current.stop();
+      } catch (_) {}
+      speechRecognitionRef.current = null;
+    }
     if (durationTimerRef.current) {
       clearInterval(durationTimerRef.current);
       durationTimerRef.current = null;
@@ -160,6 +286,17 @@ export const SpeakerDashboard: React.FC<SpeakerDashboardProps> = ({
   const handleQuickPhrase = (phraseText: string) => {
     if (wsRef.current) {
       wsRef.current.sendTextMessage(phraseText, sourceLang, 'en');
+    }
+  };
+
+  const handleApplyVoice = (voice: string, pitch: string, rate: string, profile?: CustomVoiceProfile) => {
+    setSelectedVoice(voice);
+    setSelectedPitch(pitch);
+    setSelectedRate(rate);
+    if (profile) setCustomProfile(profile);
+
+    if (wsRef.current) {
+      wsRef.current.updateVoice(voice, pitch, rate);
     }
   };
 
@@ -206,7 +343,7 @@ export const SpeakerDashboard: React.FC<SpeakerDashboardProps> = ({
                   )}
                 </div>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  Speak in your native language &mdash; all connected listeners hear real-time translated voice.
+                  Speak continuously in your native language &mdash; listeners hear instant translated voice without pauses.
                 </p>
               </div>
             </div>
@@ -266,9 +403,9 @@ export const SpeakerDashboard: React.FC<SpeakerDashboardProps> = ({
 
       {/* Main Broadcast Control Deck */}
       <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-5">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          {/* Source Language Picker */}
-          <div className="flex items-center gap-3">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          {/* Source Language Picker & Voice Studio Selector */}
+          <div className="flex flex-wrap items-center gap-3">
             <div>
               <label className="text-xs font-semibold uppercase tracking-wider text-slate-400 block mb-1">
                 My Speaking Language
@@ -287,10 +424,34 @@ export const SpeakerDashboard: React.FC<SpeakerDashboardProps> = ({
               </select>
             </div>
 
+            {/* Voice & Tone Customization Button */}
+            <div>
+              <label className="text-xs font-semibold uppercase tracking-wider text-slate-400 block mb-1">
+                Target Voice & Tone
+              </label>
+              <button
+                type="button"
+                onClick={() => setIsVoiceModalOpen(true)}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-800/90 hover:bg-slate-700 border border-slate-700 text-slate-200 text-sm font-semibold transition shadow-sm"
+              >
+                <AudioWaveform className="w-4 h-4 text-purple-400" />
+                <span>
+                  {customProfile
+                    ? 'Custom Voice Profile'
+                    : selectedVoice.includes('Guy') || selectedVoice.includes('Ryan') || selectedVoice.includes('Prabhat')
+                    ? 'Men (Male Voice)'
+                    : 'Women (Female Voice)'}
+                </span>
+                <span className="text-[11px] font-mono bg-slate-950 px-1.5 py-0.5 rounded text-indigo-400 border border-slate-800">
+                  {selectedPitch}
+                </span>
+              </button>
+            </div>
+
             <button
               onClick={toggleMute}
               title={isMuted ? 'Unmute' : 'Mute'}
-              className={`self-end p-3 rounded-xl border transition-all ${
+              className={`self-end p-2.5 rounded-xl border transition-all ${
                 isMuted
                   ? 'bg-amber-950/40 border-amber-800/80 text-amber-400'
                   : 'bg-slate-800 border-slate-700 text-slate-300 hover:text-white'
@@ -322,15 +483,15 @@ export const SpeakerDashboard: React.FC<SpeakerDashboardProps> = ({
           </div>
         </div>
 
-        {/* Audio Waveform Meter */}
+        {/* Audio Waveform Meter & Silence Guard Status */}
         {isBroadcasting && (
-          <div className="pt-2">
-            <div className="flex justify-between text-xs text-slate-400 mb-2">
+          <div className="pt-2 space-y-2">
+            <div className="flex justify-between items-center text-xs text-slate-400">
               <span className="flex items-center gap-1.5 text-emerald-400 font-medium">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
-                Microphone Audio Active
+                Continuous Speech Active &bull; Silence detection holds audio when quiet
               </span>
-              <span>Level: {currentVolume}%</span>
+              <span>Mic Level: {currentVolume}%</span>
             </div>
             <AudioVisualizer volume={currentVolume} isActive={isBroadcasting} />
           </div>
@@ -374,7 +535,7 @@ export const SpeakerDashboard: React.FC<SpeakerDashboardProps> = ({
               <Sparkles className="w-3.5 h-3.5" />
               Quick Test Phrases for {sourceLangInfo.name}
             </span>
-            <span className="text-xs text-slate-400">Click to broadcast without microphone</span>
+            <span className="text-xs text-slate-400">Click to broadcast instantly without speaking</span>
           </div>
           <div className="flex flex-wrap gap-2">
             {sourceLangInfo.sample_phrases.map((phrase, idx) => (
@@ -405,7 +566,7 @@ export const SpeakerDashboard: React.FC<SpeakerDashboardProps> = ({
             className="flex items-center gap-1 text-xs text-slate-400 hover:text-white"
           >
             <RotateCcw className="w-3.5 h-3.5" />
-            <span>Clear</span>
+            <span>Clear Feed</span>
           </button>
         </div>
 
@@ -444,6 +605,18 @@ export const SpeakerDashboard: React.FC<SpeakerDashboardProps> = ({
           <Send className="w-4 h-4" />
         </button>
       </form>
+
+      {/* Voice Customization & Tone Studio Modal */}
+      <VoiceSelectorModal
+        isOpen={isVoiceModalOpen}
+        onClose={() => setIsVoiceModalOpen(false)}
+        targetLang="en"
+        languages={languages}
+        selectedVoice={selectedVoice}
+        selectedPitch={selectedPitch}
+        selectedRate={selectedRate}
+        onApplyVoice={handleApplyVoice}
+      />
     </div>
   );
 };

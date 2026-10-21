@@ -1,3 +1,23 @@
+export interface VoiceOption {
+  id: string;
+  name: string;
+  gender: 'Male' | 'Female' | string;
+  region: string;
+  accent_label: string;
+}
+
+export interface CustomVoiceProfile {
+  detected_f0_hz: number;
+  detected_gender: 'Male' | 'Female' | string;
+  suggested_base_voice: string;
+  suggested_base_voice_name: string;
+  suggested_pitch: string;
+  suggested_rate: string;
+  duration_seconds: number;
+  preview_audio_base64?: string;
+  notes: string;
+}
+
 export interface LanguageCapability {
   code: string;
   name: string;
@@ -7,6 +27,7 @@ export interface LanguageCapability {
   tts_supported: boolean;
   default_voice: string;
   available_voices: string[];
+  voices?: VoiceOption[];
   local_model_downloaded: boolean;
   model_size_mb: number;
   model_version: string;

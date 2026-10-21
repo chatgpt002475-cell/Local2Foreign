@@ -60,6 +60,13 @@ export class AudioQueuePlayer {
     });
   }
 
+  public playBase64(audioBase64: string, format = 'audio/mp3'): Promise<void> {
+    const src = audioBase64.startsWith('data:')
+      ? audioBase64
+      : `data:${format};base64,${audioBase64}`;
+    return this.playImmediately(src);
+  }
+
   private async playNext() {
     if (this.queue.length === 0) {
       this.isPlaying = false;
