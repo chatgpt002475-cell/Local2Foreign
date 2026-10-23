@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Copy, Check, QrCode, Wifi, Globe, Smartphone } from 'lucide-react';
+import { X, Copy, Check, QrCode, Wifi, Globe, Smartphone, Laptop, Radio } from 'lucide-react';
 
 interface ShareRoomModalProps {
   isOpen: boolean;
@@ -7,19 +7,28 @@ interface ShareRoomModalProps {
   roomId: string;
 }
 
+interface TunnelData {
+  local_ip: string;
+  local_ip_url: string;
+  local_hostname_url: string;
+  local_mdns_url: string;
+  public_url: string | null;
+  active_url: string;
+  is_tunnel_active: boolean;
+}
+
 export const ShareRoomModal: React.FC<ShareRoomModalProps> = ({ isOpen, onClose, roomId }) => {
-  const [copiedType, setCopiedType] = useState<string | null>(null);
-  const [localUrl, setLocalUrl] = useState<string>('http://192.168.1.4:8000');
-  const [publicUrl, setPublicUrl] = useState<string>('https://giant-exam-veterinary-barbie.trycloudflare.com');
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [tunnelData, setTunnelData] = useState<TunnelData | null>(null);
   const [activeTab, setActiveTab] = useState<'wifi' | 'public'>('wifi');
+  const [selectedLocalMode, setSelectedLocalMode] = useState<'ip' | 'mdns'>('ip');
 
   useEffect(() => {
     if (isOpen) {
       fetch('/api/tunnel/status')
         .then((res) => res.json())
-        .then((data) => {
-          if (data.local_ip_url) setLocalUrl(data.local_ip_url);
-          if (data.public_url) setPublicUrl(data.public_url);
+        .then((data: TunnelData) => {
+          setTunnelData(data);
         })
         .catch(() => {});
     }
@@ -27,16 +36,26 @@ export const ShareRoomModal: React.FC<ShareRoomModalProps> = ({ isOpen, onClose,
 
   if (!isOpen) return null;
 
-  const wifiListenerLink = `${localUrl}/?mode=listener&room=${encodeURIComponent(roomId)}`;
-  const publicListenerLink = `${publicUrl}/?mode=listener&room=${encodeURIComponent(roomId)}`;
+  // Resolve base URLs
+  const currentOrigin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:8000';
+  const effectiveIpUrl = tunnelData?.local_ip_url || currentOrigin;
+  const effectiveMdnsUrl = tunnelData?.local_mdns_url || `${currentOrigin.replace(/:\d+$/, '')}.local:8000`;
+  const effectivePublicUrl = tunnelData?.public_url || '';
 
-  const activeLink = activeTab === 'wifi' ? wifiListenerLink : publicListenerLink;
-  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(activeLink)}`;
+  const activeBaseUrl =
+    activeTab === 'wifi'
+      ? selectedLocalMode === 'ip'
+        ? effectiveIpUrl
+        : effectiveMdnsUrl
+      : effectivePublicUrl || effectiveIpUrl;
 
-  const copyToClipboard = (text: string, type: string) => {
+  const listenerLink = `${activeBaseUrl}/?mode=listener&room=${encodeURIComponent(roomId)}`;
+  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(listenerLink)}`;
+
+  const copyToClipboard = (text: string, key: string) => {
     navigator.clipboard.writeText(text).then(() => {
-      setCopiedType(type);
-      setTimeout(() => setCopiedType(null), 2500);
+      setCopiedKey(key);
+      setTimeout(() => setCopiedKey(null), 2500);
     });
   };
 
@@ -52,7 +71,7 @@ export const ShareRoomModal: React.FC<ShareRoomModalProps> = ({ isOpen, onClose,
             <div>
               <h3 className="text-lg font-bold text-white tracking-tight">Connect Any Device</h3>
               <p className="text-xs text-slate-400">
-                Room: <span className="text-indigo-400 font-mono font-bold">{roomId}</span>
+                Broadcasting Room: <span className="text-indigo-400 font-mono font-bold">{roomId}</span>
               </p>
             </div>
           </div>
@@ -86,21 +105,59 @@ export const ShareRoomModal: React.FC<ShareRoomModalProps> = ({ isOpen, onClose,
             }`}
           >
             <Globe className="w-4 h-4" />
-            Public Remote (Mobile Data)
+            Public Remote (Mobile 4G/5G)
           </button>
         </div>
 
         {/* Body */}
-        <div className="p-6 space-y-5 overflow-y-auto">
+        <div className="p-6 space-y-4 overflow-y-auto">
           {activeTab === 'wifi' ? (
-            <div className="p-3.5 rounded-xl bg-emerald-950/20 border border-emerald-900/40 text-emerald-300 text-xs leading-relaxed">
-              <span className="font-bold text-white block mb-0.5">Recommended: Permanent Wi-Fi Link</span>
-              This link uses your local network IP and <strong>NEVER expires or changes</strong>. As long as your phone, tablet, or laptop is on the same Wi-Fi, it works 24/7 without breaking.
+            <div className="space-y-3">
+              <div className="p-3 rounded-xl bg-emerald-950/20 border border-emerald-900/40 text-emerald-300 text-xs leading-relaxed">
+                <span className="font-bold text-white block mb-0.5 flex items-center gap-1.5">
+                  <Radio className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
+                  Local Network Access (Zero Cloud Lag)
+                </span>
+                Any phone, tablet, or laptop on the same Wi-Fi can listen instantly with ultra-low latency.
+              </div>
+
+              {/* Sub-selector: IP vs mDNS Hostname */}
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => setSelectedLocalMode('ip')}
+                  className={`p-2.5 rounded-xl border text-left transition flex items-center gap-2.5 ${
+                    selectedLocalMode === 'ip'
+                      ? 'bg-emerald-500/10 border-emerald-500/60 text-white'
+                      : 'bg-slate-950/50 border-slate-800 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <Smartphone className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold truncate">Current Wi-Fi IP</p>
+                    <p className="text-[10px] text-slate-400 font-mono truncate">{effectiveIpUrl}</p>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => setSelectedLocalMode('mdns')}
+                  className={`p-2.5 rounded-xl border text-left transition flex items-center gap-2.5 ${
+                    selectedLocalMode === 'mdns'
+                      ? 'bg-emerald-500/10 border-emerald-500/60 text-white'
+                      : 'bg-slate-950/50 border-slate-800 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <Laptop className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold truncate">Permanent Hostname</p>
+                    <p className="text-[10px] text-slate-400 font-mono truncate">{effectiveMdnsUrl}</p>
+                  </div>
+                </button>
+              </div>
             </div>
           ) : (
             <div className="p-3.5 rounded-xl bg-indigo-950/20 border border-indigo-900/40 text-indigo-300 text-xs leading-relaxed">
-              <span className="font-bold text-white block mb-0.5">Public Remote Tunnel Link</span>
-              Use this link if the listener is outside your Wi-Fi (e.g. on mobile 4G/5G data). Our background watchdog monitors and auto-heals this link.
+              <span className="font-bold text-white block mb-0.5">Remote Cellular Link</span>
+              Use this HTTPS link if listeners are on mobile 4G/5G data outside the local Wi-Fi. The background daemon auto-refreshes this connection.
             </div>
           )}
 
@@ -111,39 +168,43 @@ export const ShareRoomModal: React.FC<ShareRoomModalProps> = ({ isOpen, onClose,
             </div>
             <span className="text-[11px] text-slate-400 mt-2 flex items-center gap-1.5 font-medium">
               <Smartphone className="w-3.5 h-3.5 text-indigo-400" />
-              Scan with any phone camera to open instantly
+              Scan with phone camera to listen in real time
             </span>
           </div>
 
           {/* Link URL with Copy */}
           <div className="space-y-1.5">
-            <label className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-              Listener Link
-            </label>
+            <div className="flex items-center justify-between text-xs text-slate-400">
+              <span className="font-semibold uppercase tracking-wider">Listener Link</span>
+              <span className="text-[11px] text-emerald-400 font-mono">{activeBaseUrl}</span>
+            </div>
             <div className="flex items-center gap-2 bg-slate-950 p-2.5 rounded-xl border border-slate-800">
               <input
                 type="text"
                 readOnly
-                value={activeLink}
+                value={listenerLink}
                 className="bg-transparent text-xs text-white font-mono flex-1 focus:outline-none truncate"
               />
               <button
-                onClick={() => copyToClipboard(activeLink, activeTab)}
+                onClick={() => copyToClipboard(listenerLink, 'main')}
                 className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold flex items-center gap-1.5 transition shrink-0"
               >
-                {copiedType === activeTab ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                <span>{copiedType === activeTab ? 'Copied!' : 'Copy'}</span>
+                {copiedKey === 'main' ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                <span>{copiedKey === 'main' ? 'Copied!' : 'Copy'}</span>
               </button>
             </div>
           </div>
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-slate-800 bg-slate-950/60 flex items-center justify-between text-xs">
-          <span className="text-slate-400">Direct host: <code className="text-slate-300">{localUrl}</code></span>
+        <div className="px-6 py-3.5 border-t border-slate-800 bg-slate-950/60 flex items-center justify-between text-xs">
+          <div className="flex items-center gap-2 text-slate-400">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span>Host: <code className="text-emerald-400 font-mono">{effectiveIpUrl}</code></span>
+          </div>
           <button
             onClick={onClose}
-            className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-semibold transition"
+            className="px-4 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-semibold transition"
           >
             Close
           </button>
