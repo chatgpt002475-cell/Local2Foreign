@@ -154,7 +154,7 @@ def run_uvicorn_service():
 
         for line in iter(proc.stdout.readline, ""):
             line_str = line.strip()
-            if line_str and ("ERROR" in line_str or "Started" in line_str or "Uvicorn running" in line_str):
+            if line_str:
                 log(f"[Uvicorn] {line_str}")
 
         proc.wait()
@@ -186,7 +186,7 @@ def run_tunnel_service():
         for line in iter(proc.stdout.readline, ""):
             line_str = line.strip()
             match = re.search(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com", line_str)
-            if match and not current_url:
+            if match and not current_url and "api.trycloudflare.com" not in match.group(0):
                 current_url = match.group(0)
                 local_ip = get_current_local_ip()
                 hostname = socket.gethostname()
@@ -232,6 +232,54 @@ def network_ip_monitor():
                     pass
             write_gateway_html(public_url, curr_ip, hostname)
 
+def run_port_5173_forwarder():
+    """Transparently forwards port 5173 traffic to port 8000 for full backwards-compatibility."""
+    import asyncio
+
+    async def pipe(reader, writer):
+        try:
+            while True:
+                data = await reader.read(65536)
+                if not data:
+                    break
+                writer.write(data)
+                await writer.drain()
+        except Exception:
+            pass
+        finally:
+            try:
+                writer.close()
+                await writer.wait_closed()
+            except Exception:
+                pass
+
+    async def handle_client(client_reader, client_writer):
+        try:
+            target_reader, target_writer = await asyncio.open_connection("127.0.0.1", 8000)
+            await asyncio.gather(
+                pipe(client_reader, target_writer),
+                pipe(target_reader, client_writer)
+            )
+        except Exception:
+            try:
+                client_writer.close()
+            except Exception:
+                pass
+
+    async def server_main():
+        try:
+            server = await asyncio.start_server(handle_client, "0.0.0.0", 5173)
+            log("[Proxy] Port 5173 forwarder active -> transparently mirroring port 8000")
+            async with server:
+                await server.serve_forever()
+        except Exception as e:
+            log(f"[Proxy] Port 5173 forwarder note: {e}")
+
+    try:
+        asyncio.run(server_main())
+    except Exception as e:
+        log(f"[Proxy] 5173 forwarder stopped: {e}")
+
 def main():
     global stop_requested
     local_ip = get_current_local_ip()
@@ -253,11 +301,15 @@ def main():
     # Wait 2 seconds for uvicorn to bind
     time.sleep(2)
 
-    # Thread 2: Tunnel Service
+    # Thread 2: Port 5173 Forwarder
+    t_proxy = threading.Thread(target=run_port_5173_forwarder, daemon=True)
+    t_proxy.start()
+
+    # Thread 3: Tunnel Service
     t_tunnel = threading.Thread(target=run_tunnel_service, daemon=True)
     t_tunnel.start()
 
-    # Thread 3: Network IP Monitor
+    # Thread 4: Network IP Monitor
     t_net = threading.Thread(target=network_ip_monitor, daemon=True)
     t_net.start()
 

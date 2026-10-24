@@ -223,10 +223,18 @@ export const SpeakerDashboard: React.FC<SpeakerDashboardProps> = ({
       recorderRef.current = recorder;
 
       const ws = new LiveTranslationWS({
+        onStatusChange: (status) => {
+          if (status === 'connected') {
+            setErrorMessage(null);
+          }
+        },
         onTranscript: handleTranscript,
         onRoomStats: setRoomStats,
         onListenerReaction: handleListenerReaction,
-        onError: (err) => setErrorMessage(err),
+        onError: (err) => {
+          if (err) setErrorMessage(err);
+          else setErrorMessage(null);
+        },
       });
       wsRef.current = ws;
 

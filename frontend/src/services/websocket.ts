@@ -40,9 +40,27 @@ export class LiveTranslationWS {
 
   constructor(handlers: WSMessageHandlers = {}) {
     this.handlers = handlers;
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = window.location.host || 'localhost:5173';
-    this.url = `${protocol}//${host}/ws/translate`;
+    this.url = LiveTranslationWS.resolveWsUrl();
+  }
+
+  public static resolveWsUrl(): string {
+    if (typeof window === 'undefined') {
+      return 'ws://localhost:8000/ws/translate';
+    }
+
+    const isHttps = window.location.protocol === 'https:';
+    const protocol = isHttps ? 'wss:' : 'ws:';
+    const hostname = window.location.hostname || 'localhost';
+    const port = window.location.port;
+
+    // If accessing via Vite dev port 5173 or other dev server, connect directly to FastAPI port 8000
+    if (port === '5173' || port === '3000') {
+      return `${protocol}//${hostname}:8000/ws/translate`;
+    }
+
+    // Default to current host or fallback to port 8000
+    const host = window.location.host || 'localhost:8000';
+    return `${protocol}//${host}/ws/translate`;
   }
 
   public setHandlers(handlers: WSMessageHandlers) {
@@ -75,13 +93,29 @@ export class LiveTranslationWS {
     this.setStatus('connecting');
 
     try {
+      if (this.ws) {
+        try {
+          this.ws.close();
+        } catch {
+          // ignore
+        }
+        this.ws = null;
+      }
+
+      console.log(`[WebSocket] Connecting to ${this.url} (Role: ${config.role || 'speaker'}, Room: ${config.roomId || 'none'})...`);
       this.ws = new WebSocket(this.url);
       this.ws.binaryType = 'arraybuffer';
 
       this.ws.onopen = () => {
+        console.log('[WebSocket] Connection established successfully.');
         this.setStatus('connected');
         this.reconnectAttempts = 0;
         this.startHeartbeat();
+
+        // Clear any previous error on successful connection
+        if (this.handlers.onError) {
+          this.handlers.onError('');
+        }
 
         // Send start session configuration
         this.sendJSON({
@@ -110,11 +144,14 @@ export class LiveTranslationWS {
       };
 
       this.ws.onerror = (e) => {
-        console.error('WebSocket error:', e);
-        if (this.handlers.onError) {
-          this.handlers.onError('WebSocket connection error.');
+        console.warn('[WebSocket] Connection event error:', e);
+        // Do not immediately trigger permanent failure if reconnect attempts remain
+        if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+          this.setStatus('error');
+          if (this.handlers.onError) {
+            this.handlers.onError('Unable to connect to live voice server. Please check connection.');
+          }
         }
-        this.setStatus('error');
       };
 
       this.ws.onclose = () => {
@@ -169,17 +206,16 @@ export class LiveTranslationWS {
       case 'transcript':
         if (this.handlers.onTranscript) {
           this.handlers.onTranscript({
-            id: (msg.id as string) || `seq-${msg.seq_id}`,
+            id: (msg.id as string) || `item-${Date.now()}`,
             seq_id: (msg.seq_id as number) || 0,
             timestamp: (msg.timestamp as string) || new Date().toISOString(),
-            source_lang: (msg.source_lang as string) || '',
-            target_lang: (msg.target_lang as string) || '',
+            source_lang: (msg.source_lang as string) || 'te',
+            target_lang: (msg.target_lang as string) || 'en',
             source_text: (msg.source_text as string) || '',
             translated_text: (msg.translated_text as string) || '',
             is_final: Boolean(msg.is_final),
-            audio_base64: msg.audio_base64 as string | undefined,
+            audio_base64: (msg.audio_base64 as string) || undefined,
             metrics: msg.metrics as AudioLatencyMetrics | undefined,
-            error: msg.error as string | undefined,
           });
         }
         break;
@@ -188,7 +224,7 @@ export class LiveTranslationWS {
         if (this.handlers.onAudioChunk) {
           this.handlers.onAudioChunk({
             seq_id: (msg.seq_id as number) || 0,
-            audio_base64: msg.audio_base64 as string,
+            audio_base64: (msg.audio_base64 as string) || '',
             format: (msg.format as string) || 'audio/mp3',
             is_final: Boolean(msg.is_final),
           });
@@ -203,7 +239,7 @@ export class LiveTranslationWS {
 
       case 'error':
         if (this.handlers.onError) {
-          this.handlers.onError((msg.message as string) || 'Server error');
+          this.handlers.onError((msg.message as string) || 'Server processing error');
         }
         break;
 
@@ -276,7 +312,11 @@ export class LiveTranslationWS {
     }
     if (this.ws) {
       this.sendJSON({ type: 'stop_session' });
-      this.ws.close();
+      try {
+        this.ws.close();
+      } catch {
+        // ignore
+      }
       this.ws = null;
     }
     this.setStatus('disconnected');
@@ -284,7 +324,11 @@ export class LiveTranslationWS {
 
   private sendJSON(data: Record<string, unknown>) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify(data));
+      try {
+        this.ws.send(JSON.stringify(data));
+      } catch (err) {
+        console.error('Failed to send WS message:', err);
+      }
     }
   }
 
@@ -307,6 +351,9 @@ export class LiveTranslationWS {
     targetLang: string;
     autoDetect: boolean;
     provider?: string;
+    voice?: string;
+    pitch?: string;
+    rate?: string;
     role?: 'speaker' | 'listener';
     roomId?: string;
   }) {
@@ -320,10 +367,17 @@ export class LiveTranslationWS {
 
     this.setStatus('reconnecting');
     this.reconnectAttempts++;
-    const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 10000);
+    const delay = Math.min(1000 * Math.pow(1.5, this.reconnectAttempts), 5000);
+
+    // If second attempt fails and we are on a non-standard port or IP, fail over to direct backend port 8000
+    if (this.reconnectAttempts >= 2 && typeof window !== 'undefined' && !this.url.includes(':8000') && window.location.protocol !== 'https:') {
+      const hostname = window.location.hostname || 'localhost';
+      this.url = `ws://${hostname}:8000/ws/translate`;
+      console.log(`[WebSocket] Failover attempt to standard backend port 8000: ${this.url}`);
+    }
 
     this.reconnectTimer = window.setTimeout(() => {
-      console.log(`Reconnecting (attempt ${this.reconnectAttempts})...`);
+      console.log(`[WebSocket] Reconnecting (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
       this.connect(config);
     }, delay);
   }

@@ -100,11 +100,19 @@ export function useLiveTranslator({
       recorderRef.current = recorder;
 
       const ws = new LiveTranslationWS({
-        onStatusChange: setConnectionStatus,
+        onStatusChange: (status) => {
+          setConnectionStatus(status);
+          if (status === 'connected') {
+            setErrorMessage(null);
+          }
+        },
         onTranscript: handleTranscript,
         onAudioChunk: handleAudioChunk,
         onMetrics: setLatestMetrics,
-        onError: (err) => setErrorMessage(err),
+        onError: (err) => {
+          if (err) setErrorMessage(err);
+          else setErrorMessage(null);
+        },
       });
       wsRef.current = ws;
 

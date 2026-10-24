@@ -79,10 +79,16 @@ export const ListenerDashboard: React.FC<ListenerDashboardProps> = ({
       const ws = new LiveTranslationWS({
         onStatusChange: (status) => {
           setIsConnected(status === 'connected');
+          if (status === 'connected') {
+            setErrorMessage(null);
+          }
         },
         onTranscript: handleTranscript,
         onRoomStats: setRoomStats,
-        onError: (err) => setErrorMessage(err),
+        onError: (err) => {
+          if (err) setErrorMessage(err);
+          else setErrorMessage(null);
+        },
       });
       wsRef.current = ws;
 

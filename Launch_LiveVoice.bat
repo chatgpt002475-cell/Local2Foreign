@@ -8,6 +8,15 @@ echo              LIVEVOICE AI -- PERMANENT HOSTING LAUNCHER
 echo ======================================================================
 echo.
 
+:: Detect current Wi-Fi IPv4 address dynamically
+set LOCAL_IP=localhost
+for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /c:"IPv4 Address"') do (
+    set LOCAL_IP=%%a
+    goto :found_ip
+)
+:found_ip
+set LOCAL_IP=%LOCAL_IP: =%
+
 :: Check if port 8000 is already running
 netstat -ano | findstr :8000 | findstr LISTENING >nul
 if %errorlevel% equ 0 (
@@ -20,22 +29,22 @@ if %errorlevel% equ 0 (
 
 echo.
 echo ======================================================================
-echo  PERMANENT ACCESS LINKS FOR ALL DEVICES:
+echo  ACTIVE ACCESS LINKS FOR ALL DEVICES:
 echo ======================================================================
-echo  [1] Local Computer:    http://localhost:8000
-echo  [2] Any Device (Wi-Fi): http://10.106.215.147:8000
-echo  [3] Apple/Android mDNS: http://ELLAGOWTHAMI.local:8000
-echo  [4] Windows Device:    http://ELLAGOWTHAMI:8000
+echo  [1] This Computer:       http://localhost:8000
+echo  [2] Any Device (Wi-Fi):   http://%LOCAL_IP%:8000
+echo  [3] Apple/Android mDNS:   http://ELLAGOWTHAMI.local:8000
+echo  [4] Windows Device:       http://ELLAGOWTHAMI:8000
 echo.
-echo  Speaker Studio:        http://localhost:8000/?mode=speaker&room=LIVE-8821
-echo  Listener Portal:       http://localhost:8000/?mode=listener&room=LIVE-8821
+echo  Speaker Studio (Local):  http://%LOCAL_IP%:8000/?mode=speaker^&room=LIVE-8821
+echo  Listener Portal (Local): http://%LOCAL_IP%:8000/?mode=listener^&room=LIVE-8821
 echo ======================================================================
 echo.
 
-echo Opening LiveVoice in browser...
+echo Opening LiveVoice in your browser...
 start http://localhost:8000
 
 echo.
-echo Keep this window open or minimize it. LiveVoice will continue running.
+echo LiveVoice is running. You can minimize this window.
 echo.
 pause

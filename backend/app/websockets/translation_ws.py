@@ -12,6 +12,8 @@ ws_router = APIRouter()
 @ws_router.websocket("/ws/translate")
 async def websocket_translation_endpoint(websocket: WebSocket):
     await websocket.accept()
+    client_host = websocket.client.host if websocket.client else "unknown"
+    print(f"[WebSocket] Client connected from {client_host}")
     current_session = None
 
     try:
@@ -24,6 +26,11 @@ async def websocket_translation_endpoint(websocket: WebSocket):
                     msg_type = data.get("type")
 
                     if msg_type == "start_session":
+                        # If a previous session exists on this connection, clean it up first
+                        if current_session:
+                            session_manager.remove_session(current_session.session_id)
+                            current_session = None
+
                         source_lang = data.get("source_lang", settings.DEFAULT_SOURCE_LANG)
                         target_lang = data.get("target_lang", settings.DEFAULT_TARGET_LANG)
                         auto_detect = data.get("auto_detect", False)
@@ -46,6 +53,7 @@ async def websocket_translation_endpoint(websocket: WebSocket):
                             pitch=pitch,
                             rate=rate
                         )
+                        print(f"[WebSocket] Session started: {current_session.session_id} (Role: {role}, Room: {room_id}, Lang: {source_lang}->{target_lang})")
                         await websocket.send_json({
                             "type": "session_started",
                             "session_id": current_session.session_id,
